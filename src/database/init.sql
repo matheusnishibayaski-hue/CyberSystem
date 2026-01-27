@@ -1,0 +1,90 @@
+-- Tabela de usuários
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índice para busca rápida por email
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Tabela de tokens revogados (para logout)
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    id SERIAL PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índice para busca rápida de tokens revogados
+CREATE INDEX IF NOT EXISTS idx_revoked_tokens_token ON revoked_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user_id ON revoked_tokens(user_id);
+
+-- Tabela de tentativas de login (para auditoria e segurança)
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(45),
+    success BOOLEAN DEFAULT FALSE,
+    attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índice para análise de tentativas de login
+CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts(attempted_at);
+
+-- Função para atualizar updated_at automaticamente
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Trigger para atualizar updated_at na tabela users
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+CREATE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Tabela de sites monitorados
+CREATE TABLE IF NOT EXISTS monitored_sites (
+    id SERIAL PRIMARY KEY,
+    url VARCHAR(500) NOT NULL,
+    name VARCHAR(255),
+    status VARCHAR(50) DEFAULT 'active',
+    last_scan TIMESTAMP,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para sites monitorados
+CREATE INDEX IF NOT EXISTS idx_monitored_sites_user_id ON monitored_sites(user_id);
+CREATE INDEX IF NOT EXISTS idx_monitored_sites_status ON monitored_sites(status);
+CREATE INDEX IF NOT EXISTS idx_monitored_sites_url ON monitored_sites(url);
+
+-- Tabela de logs de segurança
+CREATE TABLE IF NOT EXISTS security_logs (
+    id SERIAL PRIMARY KEY,
+    site_id INTEGER REFERENCES monitored_sites(id) ON DELETE SET NULL,
+    log_type VARCHAR(50) NOT NULL,
+    severity VARCHAR(20) DEFAULT 'info',
+    message TEXT NOT NULL,
+    details JSONB,
+    ip_address VARCHAR(45),
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para logs de segurança
+CREATE INDEX IF NOT EXISTS idx_security_logs_site_id ON security_logs(site_id);
+CREATE INDEX IF NOT EXISTS idx_security_logs_type ON security_logs(log_type);
+CREATE INDEX IF NOT EXISTS idx_security_logs_severity ON security_logs(severity);
+CREATE INDEX IF NOT EXISTS idx_security_logs_created_at ON security_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_security_logs_user_id ON security_logs(user_id);
