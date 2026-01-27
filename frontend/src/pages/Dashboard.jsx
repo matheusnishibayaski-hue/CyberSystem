@@ -69,17 +69,57 @@ export default function Dashboard() {
   const [reportData, setReportData] = useState(null)
   const [reportType, setReportType] = useState(null)
 
-  // Buscar relatórios disponíveis
+  // Estado para rastrear timestamps dos relatórios (para detectar novos)
+  const [lastReportTimestamps, setLastReportTimestamps] = useState({})
+
+  // Buscar relatórios disponíveis com polling automático
   const { data: reportsData, refetch: refetchReports } = useQuery({
     queryKey: ['scan-reports'],
     queryFn: async () => {
       const response = await apiClient.get('/api/protected/scans/reports')
       return response.data.reports || []
     },
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 15000, // Verificar a cada 15 segundos
+    refetchIntervalInBackground: true // Continuar verificando mesmo quando a aba não está ativa
   })
 
   const reports = reportsData || []
+
+  // Inicializar timestamps na primeira carga e detectar novos relatórios
+  useEffect(() => {
+    if (!reports || reports.length === 0) return
+
+    setLastReportTimestamps(prev => {
+      const currentTimestamps = { ...prev }
+
+      reports.forEach((report) => {
+        if (report.exists && report.lastModified) {
+          const reportKey = report.type
+          const lastTimestamp = prev[reportKey]
+          const currentTimestamp = new Date(report.lastModified).getTime()
+
+          // Se já temos um timestamp anterior e o atual é mais recente, é um novo relatório
+          if (lastTimestamp && currentTimestamp > lastTimestamp) {
+            const reportNames = {
+              'security': 'Semgrep Security Scan',
+              'zap': 'OWASP ZAP Scan Report',
+              'security-gate': 'Security Gate Summary'
+            }
+            
+            toast.success(`📄 Novo relatório disponível: ${reportNames[reportKey] || report.name}`, {
+              duration: 5000
+            })
+          }
+
+          // Atualizar timestamp
+          currentTimestamps[reportKey] = currentTimestamp
+        }
+      })
+
+      return currentTimestamps
+    })
+  }, [reports])
 
   const handleRefresh = () => {
     refetchStats()

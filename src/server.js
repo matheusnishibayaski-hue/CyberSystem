@@ -45,9 +45,12 @@ app.use(cors({
 }));
 
 // General Rate Limiting - Applied to all routes
+// Em desenvolvimento, limites mais permissivos para suportar polling automático
 const generalLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 requests per window
+  max: process.env.NODE_ENV === 'development' 
+    ? parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500  // 500 em desenvolvimento (suporta polling)
+    : parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 em produção
   message: {
     error: 'Too many requests',
     message: 'Too many requests from this IP, please try again later.'
@@ -76,10 +79,31 @@ const authLimiter = rateLimit({
   store: process.env.NODE_ENV === 'development' ? undefined : undefined, // Usar store padrão
 });
 
+// Rate limiting mais permissivo para rotas de leitura do dashboard (polling automático)
+const dashboardLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 1000 : 300, // Muito permissivo para polling
+  message: {
+    error: 'Too many requests',
+    message: 'Too many requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false
+});
+
 // Apply rate limiting
-app.use(generalLimiter); // Apply to all routes
+// IMPORTANTE: Aplicar rate limiters específicos ANTES do geral para que tenham prioridade
 app.use('/api/auth/login', authLimiter); // Stricter limit for login
 app.use('/api/auth/register', authLimiter); // Stricter limit for register
+
+// Rotas de dashboard com limite mais permissivo (para suportar polling automático)
+// Aplicar ANTES do generalLimiter para ter prioridade
+app.use('/api/protected/dashboard', dashboardLimiter);
+app.use('/api/protected/scans/reports', dashboardLimiter); // Relatórios também precisam de polling
+
+// Aplicar rate limiting geral em todas as outras rotas
+app.use(generalLimiter); // Apply to all routes
 
 // Session Configuration
 app.use(session({
@@ -138,6 +162,54 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Helper function to find process using port (Windows)
+function findProcessUsingPort(port) {
+  try {
+    const { execSync } = require('child_process');
+    const command = `netstat -ano | findstr :${port}`;
+    const output = execSync(command, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const lines = output.trim().split('\n');
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 5 && parts[3] === `0.0.0.0:${port}`) {
+        return parts[parts.length - 1]; // Return PID
+      }
+    }
+  } catch (error) {
+    // Command failed or no process found
+    return null;
+  }
+  return null;
+}
+
+// Handle server errors
+function handleServerError(err) {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Error: Port ${PORT} is already in use\n`);
+    
+    // Try to find the PID
+    const pid = findProcessUsingPort(PORT);
+    
+    console.error('💡 Solutions:');
+    if (pid) {
+      console.error(`   Process ID (PID) using port ${PORT}: ${pid}`);
+      console.error(`\n   1. Kill the process directly:`);
+      console.error(`      taskkill /PID ${pid} /F`);
+    } else {
+      console.error(`   1. Find and stop the process using port ${PORT}:`);
+      console.error(`      netstat -ano | findstr :${PORT}`);
+      console.error(`      taskkill /PID <PID> /F`);
+    }
+    console.error(`\n   2. Use a different port by setting PORT in .env file`);
+    console.error(`   3. Kill all Node.js processes:`);
+    console.error(`      Get-Process node | Stop-Process\n`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+    process.exit(1);
+  }
+}
+
 // Initialize Database and Start Server
 const startServer = async () => {
   try {
@@ -153,7 +225,7 @@ const startServer = async () => {
     // Initialize database tables
     await initDatabase();
 
-    // Start Server
+    // Start Server with error handling
     const server = app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -161,43 +233,30 @@ const startServer = async () => {
       console.log(`💾 Database: ${process.env.DB_NAME} @ ${process.env.DB_HOST}:${process.env.DB_PORT}`);
     });
 
+    // Handle server errors
+    server.on('error', handleServerError);
+
     return server;
   } catch (error) {
-    console.error('❌ Erro ao inicializar servidor:', error);
-    process.exit(1);
+    // Handle EADDRINUSE in catch block as well
+    if (error.code === 'EADDRINUSE') {
+      handleServerError(error);
+    } else {
+      console.error('❌ Erro ao inicializar servidor:', error);
+      process.exit(1);
+    }
   }
 };
 
 const server = startServer().catch((error) => {
-  console.error('❌ Falha crítica ao iniciar servidor:', error);
-  process.exit(1);
-});
-
-// Handle server errors (when server is started)
-if (server && typeof server.then === 'function') {
-  server.then((s) => {
-    s.on('error', handleServerError);
-  });
-} else if (server) {
-  server.on('error', handleServerError);
-}
-
-function handleServerError(err) {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`\n❌ Error: Port ${PORT} is already in use`);
-    console.error(`\n💡 Solutions:`);
-    console.error(`   1. Stop the process using port ${PORT}:`);
-    console.error(`      netstat -ano | findstr :${PORT}`);
-    console.error(`      taskkill /PID <PID> /F`);
-    console.error(`   2. Use a different port by setting PORT in .env file`);
-    console.error(`   3. Find and kill Node processes:`);
-    console.error(`      Get-Process node | Stop-Process\n`);
-    process.exit(1);
+  // Handle EADDRINUSE in promise catch
+  if (error.code === 'EADDRINUSE') {
+    handleServerError(error);
   } else {
-    console.error('Server error:', err);
+    console.error('❌ Falha crítica ao iniciar servidor:', error);
     process.exit(1);
   }
-}
+});
 
 module.exports = app;
 

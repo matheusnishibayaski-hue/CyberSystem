@@ -332,6 +332,18 @@ $html += @"
 </html>
 "@
 
+# Fazer backup do arquivo anterior se existir
+$backupPath = $ReportPath -replace '\.html$', '-backup.html'
+if (Test-Path $ReportPath) {
+    try {
+        Copy-Item -Path $ReportPath -Destination $backupPath -Force
+        Write-Host "📦 Backup do relatório anterior criado: $backupPath" -ForegroundColor Gray
+    } catch {
+        Write-Host "⚠️  Não foi possível criar backup do relatório anterior" -ForegroundColor Yellow
+    }
+}
+
+# Salvar novo relatório
 $html | Out-File -FilePath $ReportPath -Encoding UTF8
 
 Write-Host ""

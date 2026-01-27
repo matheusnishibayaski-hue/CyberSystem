@@ -125,6 +125,17 @@ try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     
     if ($RunSecurityGate) {
+        # Fazer backup do arquivo anterior se existir
+        $backupPath = $JsonOutput -replace '\.json$', '-backup.json'
+        if (Test-Path $JsonOutput) {
+            try {
+                Copy-Item -Path $JsonOutput -Destination $backupPath -Force
+                Write-Host "📦 Backup do relatório anterior criado: $backupPath" -ForegroundColor Gray
+            } catch {
+                Write-Host "⚠️  Não foi possível criar backup do relatório anterior" -ForegroundColor Yellow
+            }
+        }
+        
         # Salva resultado em JSON para o Security Gate (sem BOM)
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
         if ($Config -eq "auto") {

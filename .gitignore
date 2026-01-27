@@ -41,3 +41,7 @@ temp/
 *.pem
 *.key
 *.cert
+
+# Backup files (relatórios de backup)
+*-backup.json
+*-backup.html

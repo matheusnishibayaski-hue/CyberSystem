@@ -185,8 +185,19 @@ def print_detailed_findings(errors: List, warnings: List, infos: List, show_all:
         print()
 
 def save_gate_summary(summary: Dict[str, Any], output_file: str = "security-gate-summary.json"):
-    """Salva resumo do gate para uso no pipeline."""
+    """Salva resumo do Security Gate, fazendo backup do arquivo anterior se existir."""
     output_path = Path(output_file)
+    
+    # Fazer backup do arquivo anterior se existir
+    if output_path.exists():
+        backup_path = output_path.parent / (output_path.stem + '-backup.json')
+        try:
+            import shutil
+            shutil.copy2(output_path, backup_path)
+            print(f"📦 Backup do relatório anterior criado: {backup_path}")
+        except Exception as e:
+            print(f"⚠️  Não foi possível criar backup: {e}")
+    
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
