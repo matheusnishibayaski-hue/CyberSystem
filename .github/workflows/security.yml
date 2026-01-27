@@ -1,0 +1,117 @@
+name: Security Scan - Semgrep
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+
+env:
+  # Configuração do Security Gate
+  # true = quebra build se houver problemas críticos
+  # false = apenas alerta (recomendado para desenvolvimento)
+  FAIL_ON_CRITICAL: false
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 🔍 Instalar Semgrep
+        run: pip install semgrep
+
+      - name: 🛡️ Rodar Semgrep (JSON)
+        continue-on-error: true
+        run: |
+          semgrep --config=security/semgrep.yml --json src/ frontend/src/ > semgrep-result.json || true
+
+      - name: 🚪 Security Gate Inteligente
+        id: security_gate
+        continue-on-error: true
+        run: |
+          if [ -f semgrep-result.json ]; then
+            if [ "${{ env.FAIL_ON_CRITICAL }}" = "true" ]; then
+              python scripts/security_gate.py --file semgrep-result.json --fail-on-critical --show-all
+            else
+              python scripts/security_gate.py --file semgrep-result.json --show-all
+            fi
+          else
+            echo "⚠️  Arquivo semgrep-result.json não encontrado"
+            echo "status=clean" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📊 Gerar Resumo do Security Gate
+        if: always()
+        run: |
+          if [ -f security-gate-summary.json ]; then
+            echo "## 🛡️ Security Gate - Resumo" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            python3 << 'EOF'
+          import json
+          import sys
+          
+          try:
+              with open('security-gate-summary.json', 'r') as f:
+                  summary = json.load(f)
+              
+              total = summary.get('total', 0)
+              critical = summary.get('critical', 0)
+              warning = summary.get('warning', 0)
+              info = summary.get('info', 0)
+              status = summary.get('status', 'clean')
+              
+              # Emoji por status
+              status_emoji = {
+                  'clean': '✅',
+                  'info': '🔵',
+                  'warning': '🟠',
+                  'critical': '🔴'
+              }
+              
+              emoji = status_emoji.get(status, '❓')
+              
+              print(f"{emoji} **Status:** {status.upper()}")
+              print("")
+              print("| Severidade | Quantidade |")
+              print("|-----------|------------|")
+              print(f"| 🔴 Alta/Crítica | {critical} |")
+              print(f"| 🟠 Média | {warning} |")
+              print(f"| 🔵 Baixa | {info} |")
+              print(f"| **Total** | **{total}** |")
+              print("")
+              
+              if critical > 0:
+                  print("⚠️ **ATENÇÃO:** Problemas críticos detectados!")
+                  print("")
+                  print("💡 **Ação recomendada:** Corrigir antes de fazer merge")
+              elif warning > 0 or info > 0:
+                  print("ℹ️ Problemas de média/baixa severidade detectados.")
+                  print("")
+                  print("💡 **Ação recomendada:** Revisar quando possível")
+              else:
+                  print("✅ Nenhuma vulnerabilidade encontrada!")
+          except Exception as e:
+              print(f"⚠️ Erro ao gerar resumo: {e}")
+          EOF
+          else
+            echo "## 🛡️ Security Gate - Resumo" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Resumo não disponível" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📦 Salvar resultados como artefatos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan-results
+          path: |
+            semgrep-result.json
+            security-gate-summary.json
+          retention-days: 30

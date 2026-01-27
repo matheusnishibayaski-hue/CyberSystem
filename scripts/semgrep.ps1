@@ -20,6 +20,9 @@
 .EXAMPLE
     .\semgrep.ps1 -Config "security/semgrep.yml" -Target "src/controllers"
     Analisa apenas o diretório controllers
+.EXAMPLE
+    .\semgrep.ps1 -JsonOutput "semgrep-result.json"
+    Executa Semgrep e salva resultado em JSON
 .NOTES
     Para instalar Semgrep: python -m pip install --user semgrep
 #>
@@ -32,7 +35,10 @@ param(
     [string]$Target = "src/",
     
     [Parameter(HelpMessage="Usa regras automáticas do Semgrep")]
-    [switch]$Auto
+    [switch]$Auto,
+    
+    [Parameter(HelpMessage="Salva resultado em arquivo JSON")]
+    [string]$JsonOutput = $null
 )
 
 # Função para encontrar Semgrep
@@ -109,6 +115,9 @@ Write-Host ""
 Write-Host "Executando Semgrep..." -ForegroundColor Cyan
 Write-Host "Configuração: $Config" -ForegroundColor Gray
 Write-Host "Alvo: $Target" -ForegroundColor Gray
+if ($JsonOutput) {
+    Write-Host "Saída JSON: $JsonOutput" -ForegroundColor Gray
+}
 Write-Host ""
 
 try {
@@ -116,13 +125,33 @@ try {
     $env:PYTHONIOENCODING = "utf-8"
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     
-    if ($Config -eq "auto") {
-        & $semgrepPath --config=auto $Target
+    if ($JsonOutput) {
+        # Salva resultado em JSON (sem BOM)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        if ($Config -eq "auto") {
+            $output = & $semgrepPath --config=auto --json $Target
+            [System.IO.File]::WriteAllText($JsonOutput, $output, $utf8NoBom)
+        } else {
+            $output = & $semgrepPath --config=$Config --json $Target
+            [System.IO.File]::WriteAllText($JsonOutput, $output, $utf8NoBom)
+        }
+        
+        $exitCode = $LASTEXITCODE
+        
+        if (Test-Path $JsonOutput) {
+            Write-Host ""
+            Write-Host "✅ Resultado salvo em: $JsonOutput" -ForegroundColor Green
+        }
     } else {
-        & $semgrepPath --config=$Config $Target
+        # Modo normal (saída no console)
+        if ($Config -eq "auto") {
+            & $semgrepPath --config=auto $Target
+        } else {
+            & $semgrepPath --config=$Config $Target
+        }
+        
+        $exitCode = $LASTEXITCODE
     }
-    
-    $exitCode = $LASTEXITCODE
     
     Write-Host ""
     if ($exitCode -eq 0) {

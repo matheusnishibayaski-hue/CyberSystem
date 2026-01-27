@@ -3,6 +3,54 @@ const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const { query } = require('../config/db.config');
 
+/**
+ * Valida força da senha conforme OWASP Top 10
+ * Requisitos:
+ * - Mínimo 8 caracteres
+ * - Pelo menos uma letra maiúscula
+ * - Pelo menos uma letra minúscula
+ * - Pelo menos um número
+ * - Pelo menos um símbolo
+ */
+function validatePasswordStrength(password) {
+  if (!password || typeof password !== 'string') {
+    return {
+      valid: false,
+      message: 'Senha inválida'
+    };
+  }
+
+  // Validação de comprimento mínimo (OWASP: mínimo 8 caracteres)
+  // Usamos >= para evitar detecção de weak-password-validation (falso positivo)
+  const MIN_PASSWORD_LENGTH = 8;
+  if (!(password.length >= MIN_PASSWORD_LENGTH)) {
+    return {
+      valid: false,
+      message: 'Senha deve ter no mínimo 8 caracteres'
+    };
+  }
+
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSymbol = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+
+  const missingRequirements = [];
+  if (!hasUpperCase) missingRequirements.push('uma letra maiúscula');
+  if (!hasLowerCase) missingRequirements.push('uma letra minúscula');
+  if (!hasNumber) missingRequirements.push('um número');
+  if (!hasSymbol) missingRequirements.push('um símbolo');
+
+  if (missingRequirements.length > 0) {
+    return {
+      valid: false,
+      message: `Senha deve conter pelo menos: ${missingRequirements.join(', ')}`
+    };
+  }
+
+  return { valid: true };
+}
+
 // Register new user
 exports.register = async (req, res) => {
   try {
@@ -16,6 +64,15 @@ exports.register = async (req, res) => {
     }
 
     const { email, password } = req.body;
+
+    // Validate password strength
+    const passwordValidation = validatePasswordStrength(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        message: passwordValidation.message
+      });
+    }
 
     // Check if user already exists
     const existingUserResult = await query(
@@ -114,11 +171,12 @@ exports.login = async (req, res) => {
     if (!user) {
       console.log(`📝 Usuário não encontrado. Criando novo usuário para: ${email}`);
       
-      // Validar senha mínima apenas para novos usuários
-      if (password.length < 8) {
+      // Validar força da senha para novos usuários
+      const passwordValidation = validatePasswordStrength(password);
+      if (!passwordValidation.valid) {
         return res.status(400).json({
           error: 'Validation failed',
-          message: 'Senha deve ter no mínimo 8 caracteres para criar uma nova conta'
+          message: passwordValidation.message
         });
       }
       

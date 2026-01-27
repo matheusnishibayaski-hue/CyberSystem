@@ -15,6 +15,12 @@
 .EXAMPLE
     .\security-scan.ps1 -Config "auto" -Target "src/"
     Usa regras automáticas do Semgrep
+.EXAMPLE
+    .\security-scan.ps1 -RunSecurityGate
+    Executa Semgrep e Security Gate integrado
+.EXAMPLE
+    .\security-scan.ps1 -RunSecurityGate -FailOnCritical -ShowAll
+    Executa com Security Gate, falha em críticos e mostra todos os findings
 .NOTES
     Para instalar Semgrep: python -m pip install --user semgrep
 #>
@@ -24,7 +30,19 @@ param(
     [string]$Config = "security/semgrep.yml",
     
     [Parameter(HelpMessage="Diretório ou arquivo a ser analisado")]
-    [string]$Target = "src/"
+    [string]$Target = "src/",
+    
+    [Parameter(HelpMessage="Executa Security Gate após o scan")]
+    [switch]$RunSecurityGate,
+    
+    [Parameter(HelpMessage="Arquivo JSON de saída do Semgrep")]
+    [string]$JsonOutput = "semgrep-result.json",
+    
+    [Parameter(HelpMessage="Falha no build se houver problemas críticos")]
+    [switch]$FailOnCritical,
+    
+    [Parameter(HelpMessage="Mostra todos os findings no Security Gate")]
+    [switch]$ShowAll
 )
 
 # Função para encontrar Semgrep
@@ -76,10 +94,6 @@ if (-not $semgrepPath -or -not (Test-Path $semgrepPath)) {
 }
 
 Write-Host "✅ Semgrep encontrado em: $semgrepPath" -ForegroundColor Green
-
-Write-Host "Running Semgrep security scan..." -ForegroundColor Cyan
-Write-Host "Config: $Config" -ForegroundColor Gray
-Write-Host "Target: $Target" -ForegroundColor Gray
 Write-Host ""
 
 # Verifica se o arquivo de configuração existe
@@ -99,6 +113,10 @@ Write-Host ""
 Write-Host "Executando scan de segurança com Semgrep..." -ForegroundColor Cyan
 Write-Host "Configuração: $Config" -ForegroundColor Gray
 Write-Host "Alvo: $Target" -ForegroundColor Gray
+if ($RunSecurityGate) {
+    Write-Host "Security Gate: Habilitado" -ForegroundColor Gray
+    Write-Host "Arquivo JSON: $JsonOutput" -ForegroundColor Gray
+}
 Write-Host ""
 
 try {
@@ -106,21 +124,65 @@ try {
     $env:PYTHONIOENCODING = "utf-8"
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     
-    if ($Config -eq "auto") {
-        & $semgrepPath --config=auto $Target
+    if ($RunSecurityGate) {
+        # Salva resultado em JSON para o Security Gate (sem BOM)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+        if ($Config -eq "auto") {
+            $output = & $semgrepPath --config=auto --json $Target
+            [System.IO.File]::WriteAllText($JsonOutput, $output, $utf8NoBom)
+        } else {
+            $output = & $semgrepPath --config=$Config --json $Target
+            [System.IO.File]::WriteAllText($JsonOutput, $output, $utf8NoBom)
+        }
+        
+        $exitCode = $LASTEXITCODE
+        
+        if (Test-Path $JsonOutput) {
+            Write-Host ""
+            Write-Host "✅ Resultado do Semgrep salvo em: $JsonOutput" -ForegroundColor Green
+        }
     } else {
-        & $semgrepPath --config=$Config $Target
+        # Modo normal (saída no console)
+        if ($Config -eq "auto") {
+            & $semgrepPath --config=auto $Target
+        } else {
+            & $semgrepPath --config=$Config $Target
+        }
+        
+        $exitCode = $LASTEXITCODE
     }
     
-    $exitCode = $LASTEXITCODE
-    
-    Write-Host ""
-    if ($exitCode -eq 0) {
-        Write-Host "✅ Nenhum problema de segurança encontrado!" -ForegroundColor Green
-    } elseif ($exitCode -eq 1) {
-        Write-Host "⚠️  Problemas de segurança encontrados. Revise a saída acima." -ForegroundColor Yellow
+    # Executa Security Gate se solicitado
+    if ($RunSecurityGate -and (Test-Path $JsonOutput)) {
+        Write-Host ""
+        Write-Host ("=" * 70) -ForegroundColor Cyan
+        Write-Host "Executando Security Gate..." -ForegroundColor Cyan
+        Write-Host ("=" * 70) -ForegroundColor Cyan
+        Write-Host ""
+        
+        $gateArgs = @("scripts/security_gate.py", "--file", $JsonOutput)
+        if ($FailOnCritical) {
+            $gateArgs += "--fail-on-critical"
+        }
+        if ($ShowAll) {
+            $gateArgs += "--show-all"
+        }
+        
+        & python $gateArgs
+        $gateExitCode = $LASTEXITCODE
+        
+        if ($gateExitCode -ne 0) {
+            exit $gateExitCode
+        }
     } else {
-        Write-Host "❌ Erro ao executar Semgrep (código de saída: $exitCode)" -ForegroundColor Red
+        Write-Host ""
+        if ($exitCode -eq 0) {
+            Write-Host "✅ Nenhum problema de segurança encontrado!" -ForegroundColor Green
+        } elseif ($exitCode -eq 1) {
+            Write-Host "⚠️  Problemas de segurança encontrados. Revise a saída acima." -ForegroundColor Yellow
+        } else {
+            Write-Host "❌ Erro ao executar Semgrep (código de saída: $exitCode)" -ForegroundColor Red
+        }
     }
     
     exit $exitCode
