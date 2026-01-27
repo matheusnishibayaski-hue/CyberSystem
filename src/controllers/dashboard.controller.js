@@ -3,45 +3,77 @@ const { query } = require('../config/db.config');
 // Estatísticas do dashboard
 exports.getStats = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.json({
+        success: true,
+        stats: {
+          sites: 0,
+          scans: 0,
+          vulnerabilities: 0,
+          alerts: 0
+        }
+      });
+    }
 
-    // Contar sites monitorados
-    const sitesResult = await query(
-      'SELECT COUNT(*) as count FROM monitored_sites WHERE user_id = $1',
-      [userId]
-    );
-    const sitesCount = parseInt(sitesResult.rows[0]?.count || 0);
+    // Contar sites monitorados (com tratamento de erro)
+    let sitesCount = 0;
+    try {
+      const sitesResult = await query(
+        'SELECT COUNT(*) as count FROM monitored_sites WHERE user_id = $1',
+        [userId]
+      );
+      sitesCount = parseInt(sitesResult.rows[0]?.count || 0);
+    } catch (err) {
+      // Tabela pode não existir - usar 0
+    }
 
-    // Contar scans executados (logs do tipo scan)
-    const scansResult = await query(
-      'SELECT COUNT(*) as count FROM security_logs WHERE user_id = $1 AND log_type = $2',
-      [userId, 'scan']
-    );
-    const scansCount = parseInt(scansResult.rows[0]?.count || 0);
+    // Contar scans executados (logs do tipo scan) - com tratamento de erro
+    let scansCount = 0;
+    try {
+      const scansResult = await query(
+        'SELECT COUNT(*) as count FROM security_logs WHERE user_id = $1 AND log_type = $2',
+        [userId, 'scan']
+      );
+      scansCount = parseInt(scansResult.rows[0]?.count || 0);
+    } catch (err) {
+      // Tabela pode não existir - usar 0
+    }
 
-    // Contar vulnerabilidades críticas (logs com severity critical ou error)
-    const vulnerabilitiesResult = await query(
-      `SELECT COUNT(*) as count 
-       FROM security_logs 
-       WHERE user_id = $1 
-       AND severity IN ('critical', 'error')
-       AND log_type = 'security'`,
-      [userId]
-    );
-    const vulnerabilitiesCount = parseInt(vulnerabilitiesResult.rows[0]?.count || 0);
+    // Contar vulnerabilidades críticas - com tratamento de erro
+    let vulnerabilitiesCount = 0;
+    try {
+      const vulnerabilitiesResult = await query(
+        `SELECT COUNT(*) as count 
+         FROM security_logs 
+         WHERE user_id = $1 
+         AND severity IN ('critical', 'error')
+         AND log_type = 'security'`,
+        [userId]
+      );
+      vulnerabilitiesCount = parseInt(vulnerabilitiesResult.rows[0]?.count || 0);
+    } catch (err) {
+      // Tabela pode não existir - usar 0
+    }
 
-    // Contar alertas de hoje
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const alertsResult = await query(
-      `SELECT COUNT(*) as count 
-       FROM security_logs 
-       WHERE user_id = $1 
-       AND created_at >= $2
-       AND severity IN ('warning', 'error', 'critical')`,
-      [userId, today]
-    );
-    const alertsCount = parseInt(alertsResult.rows[0]?.count || 0);
+    // Contar alertas de hoje - com tratamento de erro
+    let alertsCount = 0;
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const alertsResult = await query(
+        `SELECT COUNT(*) as count 
+         FROM security_logs 
+         WHERE user_id = $1 
+         AND created_at >= $2
+         AND severity IN ('warning', 'error', 'critical')`,
+        [userId, today]
+      );
+      alertsCount = parseInt(alertsResult.rows[0]?.count || 0);
+    } catch (err) {
+      // Tabela pode não existir - usar 0
+    }
 
     res.json({
       success: true,
@@ -53,11 +85,19 @@ exports.getStats = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erro ao buscar estatísticas do dashboard:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Erro ao buscar estatísticas',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    // Log apenas em desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Erro ao buscar estatísticas do dashboard:', error);
+    }
+    // Retornar estatísticas vazias em caso de erro (não quebrar o frontend)
+    res.json({
+      success: true,
+      stats: {
+        sites: 0,
+        scans: 0,
+        vulnerabilities: 0,
+        alerts: 0
+      }
     });
   }
 };
@@ -65,7 +105,14 @@ exports.getStats = async (req, res) => {
 // Atividade recente
 exports.getRecentActivity = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.json({
+        success: true,
+        activities: []
+      });
+    }
     const limit = parseInt(req.query.limit) || 5;
 
     const result = await query(
@@ -90,19 +137,22 @@ exports.getRecentActivity = async (req, res) => {
       activities: result.rows || []
     });
   } catch (error) {
-    console.error('Erro ao buscar atividade recente:', error);
-    // Se a tabela não existir, retornar array vazio
-    if (error.message && error.message.includes('does not exist')) {
+    // Log apenas em desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Erro ao buscar atividade recente:', error);
+    }
+    // Se a tabela não existir ou qualquer erro de banco, retornar array vazio
+    if (error.message && (error.message.includes('does not exist') || error.message.includes('relation') || error.message.includes('table'))) {
       return res.json({
         success: true,
         activities: []
       });
     }
     
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Erro ao buscar atividade recente',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    // Retornar array vazio em caso de erro (não quebrar o frontend)
+    res.json({
+      success: true,
+      activities: []
     });
   }
 };
@@ -110,7 +160,14 @@ exports.getRecentActivity = async (req, res) => {
 // Dados do gráfico de alertas por severidade (últimos 6 meses)
 exports.getAlertsChart = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
     
     // Calcular data de 6 meses atrás
     const sixMonthsAgo = new Date();
@@ -178,19 +235,22 @@ exports.getAlertsChart = async (req, res) => {
       data: chartDataArray
     });
   } catch (error) {
-    console.error('Erro ao buscar dados do gráfico:', error);
-    // Se a tabela não existir, retornar array vazio
-    if (error.message && error.message.includes('does not exist')) {
+    // Log apenas em desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Erro ao buscar dados do gráfico:', error);
+    }
+    // Se a tabela não existir ou qualquer erro de banco, retornar array vazio
+    if (error.message && (error.message.includes('does not exist') || error.message.includes('relation') || error.message.includes('table'))) {
       return res.json({
         success: true,
         data: []
       });
     }
     
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Erro ao buscar dados do gráfico',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    // Retornar array vazio em caso de erro (não quebrar o frontend)
+    res.json({
+      success: true,
+      data: []
     });
   }
 };

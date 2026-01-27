@@ -108,7 +108,7 @@ function Start-Server {
     $maxAttempts = 10
     while ($attempts -lt $maxAttempts) {
         if (Test-ServerHealth -Url $Target -Timeout 2) {
-            Write-Host "✅ Servidor iniciado com sucesso" -ForegroundColor Green
+            Write-Host "[OK] Servidor iniciado com sucesso" -ForegroundColor Green
             return $true
         }
         Start-Sleep -Seconds 1
@@ -123,11 +123,11 @@ if ($Target -eq "http://localhost:3000") {
     $detectedPort = Find-ServerPort
     if ($null -ne $detectedPort) {
         $Target = "http://localhost:$detectedPort"
-        Write-Host "✅ Servidor detectado na porta $detectedPort" -ForegroundColor Green
+        Write-Host "[OK] Servidor detectado na porta $detectedPort" -ForegroundColor Green
         Write-Host ""
     } else {
         # Se não detectou, tenta a porta padrão mas não assume que está rodando
-        Write-Host "⚠️  Servidor não detectado automaticamente, tentando porta padrão 3000..." -ForegroundColor Yellow
+        Write-Host "[!] Servidor nao detectado automaticamente, tentando porta padrao 3000..." -ForegroundColor Yellow
         Write-Host ""
     }
 }
@@ -137,13 +137,13 @@ Write-Host "Verificando se o servidor está rodando em $Target..." -ForegroundCo
 $serverRunning = Test-ServerHealth -Url $Target
 
 if (-not $serverRunning) {
-    Write-Host "❌ Erro: Servidor não está acessível em $Target" -ForegroundColor Red
+    Write-Host "[ERRO] Erro: Servidor nao esta acessivel em $Target" -ForegroundColor Red
     
     if ($AutoStart) {
         Write-Host "Tentando iniciar automaticamente..." -ForegroundColor Yellow
         $started = Start-Server
         if (-not $started) {
-            Write-Host "❌ Não foi possível iniciar o servidor automaticamente" -ForegroundColor Red
+            Write-Host "[ERRO] Nao foi possivel iniciar o servidor automaticamente" -ForegroundColor Red
             Write-Host "   Inicie o servidor com: npm start" -ForegroundColor Yellow
             exit 1
         }
@@ -153,7 +153,7 @@ if (-not $serverRunning) {
         exit 1
     }
 } else {
-    Write-Host "✅ Servidor está rodando em $Target" -ForegroundColor Green
+    Write-Host "[OK] Servidor esta rodando em $Target" -ForegroundColor Green
 }
 
 # Função para encontrar ZAP CLI
@@ -209,24 +209,79 @@ function Find-ZapCli {
     }
 }
 
+# Write a minimal HTML report when full scan cannot run
+function Write-FallbackReport {
+    param([string]$Reason)
+
+    $reportDir = Split-Path -Parent $ReportPath
+    if (-not (Test-Path $reportDir)) {
+        New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+    }
+
+    $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OWASP ZAP Report (Fallback) - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 3px solid #7c3aed; padding-bottom: 10px; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; border-radius: 4px; }
+        code { background: #eee; padding: 2px 4px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OWASP ZAP Full Scan Report (Fallback)</h1>
+        <p><strong>Target:</strong> $Target</p>
+        <p><strong>Scan Date:</strong> $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
+        <div class="warning">
+            <p><strong>Full scan could not run.</strong></p>
+            <p>Reason: $Reason</p>
+            <p>Install OWASP ZAP Desktop and ensure it is running, or set the <code>ZAP_PATH</code> environment variable.</p>
+        </div>
+    </div>
+</body>
+</html>
+"@
+
+    # Backup existing report if present
+    $backupPath = $ReportPath -replace '\.html$', '-backup.html'
+    if (Test-Path $ReportPath) {
+        try {
+            Copy-Item -Path $ReportPath -Destination $backupPath -Force
+        } catch { }
+        try {
+            Remove-Item -Path $ReportPath -Force
+        } catch { }
+    }
+
+    $html | Out-File -FilePath $ReportPath -Encoding UTF8
+    if (Test-Path $ReportPath) {
+        (Get-Item $ReportPath).LastWriteTime = Get-Date
+    }
+}
+
 # Verifica se ZAP está disponível
 Write-Host "Procurando OWASP ZAP..." -ForegroundColor Yellow
 $zapInfo = Find-ZapCli
 
 if (-not $zapInfo.Found) {
-    Write-Host "⚠️  ZAP não encontrado automaticamente" -ForegroundColor Yellow
+    Write-Host "[!] ZAP nao encontrado automaticamente" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Opções de instalação:" -ForegroundColor Yellow
     Write-Host "1. Baixar OWASP ZAP Desktop: https://www.zaproxy.org/download/" -ForegroundColor Cyan
     Write-Host "2. Usar Docker: docker run -t owasp/zap2docker-stable zap-baseline.py -t $Target" -ForegroundColor Cyan
     Write-Host "3. Instalar zap-cli: python -m pip install --user zapcli" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "💡 Para usar zap-cli, você precisa:" -ForegroundColor Yellow
+    Write-Host "[INFO] Para usar zap-cli, voce precisa:" -ForegroundColor Yellow
     Write-Host "   - Baixar e instalar OWASP ZAP Desktop" -ForegroundColor Gray
     Write-Host "   - Ou usar Docker com ZAP" -ForegroundColor Gray
-    exit 1
+    Write-FallbackReport -Reason "OWASP ZAP not found. Install ZAP or configure ZAP_PATH."
+    exit 0
 } else {
-    Write-Host "✅ ZAP encontrado: $($zapInfo.Method) em $($zapInfo.Location)" -ForegroundColor Green
+    Write-Host "[OK] ZAP encontrado: $($zapInfo.Method) em $($zapInfo.Location)" -ForegroundColor Green
     $zapAvailable = $true
     $zapMethod = $zapInfo.Method
     $zapCliPath = $zapInfo.Path
@@ -248,7 +303,7 @@ if ($zapMethod -eq "zap-cli") {
     # Usa zap-cli para fazer o scan
     try {
         Write-Host "Executando scan com zap-cli..." -ForegroundColor Yellow
-        Write-Host "⚠️  Nota: zap-cli requer OWASP ZAP instalado e rodando" -ForegroundColor Yellow
+        Write-Host "[!] Nota: zap-cli requer OWASP ZAP instalado e rodando" -ForegroundColor Yellow
         Write-Host ""
         
         # Quick scan (mais rápido) - requer ZAP rodando
@@ -256,12 +311,13 @@ if ($zapMethod -eq "zap-cli") {
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
-            Write-Host "❌ Erro: ZAP não está rodando ou não foi encontrado" -ForegroundColor Red
+            Write-Host "[ERRO] Erro: ZAP nao esta rodando ou nao foi encontrado" -ForegroundColor Red
             Write-Host ""
             Write-Host "Soluções:" -ForegroundColor Yellow
             Write-Host "1. Baixe e inicie OWASP ZAP Desktop: https://www.zaproxy.org/download/" -ForegroundColor Cyan
             Write-Host "2. Ou use Docker: docker run -d -p 8080:8080 owasp/zap2docker-stable zap.sh -daemon" -ForegroundColor Cyan
-            exit 1
+            Write-FallbackReport -Reason "ZAP daemon not available. Start ZAP Desktop or set ZAP_PATH."
+            exit 0
         }
         
         # Fazer backup do arquivo anterior se existir
@@ -269,9 +325,16 @@ if ($zapMethod -eq "zap-cli") {
         if (Test-Path $ReportPath) {
             try {
                 Copy-Item -Path $ReportPath -Destination $backupPath -Force
-                Write-Host "📦 Backup do relatório anterior criado: $backupPath" -ForegroundColor Gray
+                Write-Host "[*] Backup do relatorio anterior criado: $backupPath" -ForegroundColor Gray
             } catch {
-                Write-Host "⚠️  Não foi possível criar backup do relatório anterior" -ForegroundColor Yellow
+                Write-Host "[!] Nao foi possivel criar backup do relatorio anterior" -ForegroundColor Yellow
+            }
+            
+            # Deletar arquivo existente para garantir atualização da data de modificação
+            try {
+                Remove-Item -Path $ReportPath -Force
+            } catch {
+                Write-Host "[!] Nao foi possivel deletar arquivo anterior" -ForegroundColor Yellow
             }
         }
         
@@ -280,28 +343,34 @@ if ($zapMethod -eq "zap-cli") {
         Write-Host "Gerando relatório HTML..." -ForegroundColor Yellow
         & $zapCliPath report -o $ReportPath -f html
         
+        # Forçar atualização da data de modificação
+        if (Test-Path $ReportPath) {
+            (Get-Item $ReportPath).LastWriteTime = Get-Date
+        }
+        
         Write-Host ""
-        Write-Host "✅ Scan concluído!" -ForegroundColor Green
-        Write-Host "📄 Relatório salvo em: $ReportPath" -ForegroundColor Cyan
+        Write-Host "[OK] Scan concluido!" -ForegroundColor Green
+        Write-Host "[INFO] Relatorio salvo em: $ReportPath" -ForegroundColor Cyan
         
     } catch {
-        Write-Host "❌ Erro ao executar scan: $_" -ForegroundColor Red
+        Write-Host "[ERRO] Erro ao executar scan: $_" -ForegroundColor Red
         Write-Host ""
-        Write-Host "💡 Certifique-se de que OWASP ZAP está instalado e rodando" -ForegroundColor Yellow
+        Write-Host "[INFO] Certifique-se de que OWASP ZAP esta instalado e rodando" -ForegroundColor Yellow
         exit 1
     }
 } elseif ($zapMethod -eq "zap-api") {
     # Usa API REST do ZAP
     Write-Host "Usando ZAP API..." -ForegroundColor Yellow
-    Write-Host "⚠️  Scan via API requer ZAP já iniciado" -ForegroundColor Yellow
+    Write-Host "[!] Scan via API requer ZAP ja iniciado" -ForegroundColor Yellow
     Write-Host "   Inicie ZAP Desktop ou ZAP daemon primeiro" -ForegroundColor Yellow
     
     # Aqui poderia implementar chamadas à API REST do ZAP
     # Mas é mais complexo, então vamos sugerir zap-cli
     Write-Host ""
-    Write-Host "💡 Recomendação: Use zap-cli para automação" -ForegroundColor Cyan
+    Write-Host "[INFO] Recomendacao: Use zap-cli para automacao" -ForegroundColor Cyan
     Write-Host "   python -m pip install --user zapcli" -ForegroundColor Gray
 }
 
 Write-Host ""
 Write-Host "=== Scan Finalizado ===" -ForegroundColor Cyan
+

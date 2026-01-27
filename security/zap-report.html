@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html>
 <html>
 <head>
-    <title>Security Scan Report - 2026-01-26 23:44:32</title>
+    <title>Security Scan Report - 2026-01-27 02:20:55</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -21,12 +21,12 @@
 </head>
 <body>
     <div class="container">
-        <h1>ðŸ”’ Security Scan Report</h1>
+        <h1>Security Scan Report</h1>
         <p><strong>Target:</strong> http://localhost:3000</p>
-        <p><strong>Scan Date:</strong> 2026-01-26 23:44:32</p>
+        <p><strong>Scan Date:</strong> 2026-01-27 02:20:55</p>
         <p><strong>Note:</strong> Este Ã© um relatÃ³rio simplificado. Para scan completo, use OWASP ZAP Desktop.</p>
         
-        <h2>ðŸ“Š Endpoint Tests</h2>
+        <h2>Endpoint Tests</h2>
         <table>
             <tr>
                 <th>Endpoint</th>
@@ -37,41 +37,41 @@
                 <td>/health</td>
                 <td>GET</td>
                 <td>200</td>
-                <td class="status-ok">âœ… OK</td>
+                <td class="status-ok">OK</td>
             </tr>            <tr>
                 <td>/api/auth/register</td>
                 <td>POST</td>
                 <td>400</td>
-                <td class="status-ok">âœ… OK</td>
+                <td class="status-ok">OK</td>
             </tr>            <tr>
                 <td>/api/auth/login</td>
                 <td>POST</td>
                 <td>400</td>
-                <td class="status-ok">âœ… OK</td>
+                <td class="status-ok">OK</td>
             </tr>        </table>
         
-        <h2>ðŸ›¡ï¸ Security Headers</h2>
+        <h2>Security Headers</h2>
         <table>
             <tr>
                 <th>Header</th>
                 <th>Status</th>
             </tr>            <tr>
                 <td>X-Content-Type-Options</td>
-                <td><span class="status-ok">âœ… Present</span></td>
+                <td><span class="status-ok">Present</span></td>
             </tr>            <tr>
                 <td>X-Frame-Options</td>
-                <td><span class="status-ok">âœ… Present</span></td>
+                <td><span class="status-ok">Present</span></td>
             </tr>            <tr>
                 <td>X-XSS-Protection</td>
-                <td><span class="status-ok">âœ… Present</span></td>
+                <td><span class="status-ok">Present</span></td>
             </tr>            <tr>
                 <td>Strict-Transport-Security</td>
-                <td><span class="status-ok">âœ… Present</span></td>
+                <td><span class="status-ok">Present</span></td>
             </tr>        </table>
         
-        <h2>ðŸ“ Recommendations</h2>
+        <h2>Recommendations</h2>
         <div class="test-result warning">
-            <strong>âš ï¸ Para scan completo de seguranÃ§a:</strong>
+            <strong>Aviso: Para scan completo de seguranca:</strong>
             <ul>
                 <li>Instale OWASP ZAP Desktop: <a href="https://www.zaproxy.org/download/">https://www.zaproxy.org/download/</a></li>
                 <li>Execute scan completo com: <code>.\scripts\zap-scan.ps1</code></li>

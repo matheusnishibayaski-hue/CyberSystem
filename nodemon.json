@@ -1,0 +1,16 @@
+{
+  "watch": ["src"],
+  "ignore": [
+    "semgrep-result.json",
+    "semgrep-result-backup.json",
+    "security-gate-summary.json",
+    "security-gate-summary-backup.json",
+    "security/**",
+    "*.log"
+  ],
+  "restartable": "rs",
+  "delay": 2000,
+  "events": {
+    "restart": "echo '🔄 Reiniciando servidor...'"
+  }
+}

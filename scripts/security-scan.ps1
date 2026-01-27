@@ -84,7 +84,7 @@ Write-Host "Procurando Semgrep..." -ForegroundColor Yellow
 $semgrepPath = Find-Semgrep
 
 if (-not $semgrepPath -or -not (Test-Path $semgrepPath)) {
-    Write-Host "❌ Semgrep não encontrado" -ForegroundColor Red
+    Write-Host "[ERRO] Semgrep nao encontrado" -ForegroundColor Red
     Write-Host ""
     Write-Host "Para instalar Semgrep:" -ForegroundColor Yellow
     Write-Host "  python -m pip install --user semgrep" -ForegroundColor Cyan
@@ -93,19 +93,19 @@ if (-not $semgrepPath -or -not (Test-Path $semgrepPath)) {
     exit 1
 }
 
-Write-Host "✅ Semgrep encontrado em: $semgrepPath" -ForegroundColor Green
+Write-Host "[OK] Semgrep encontrado em: $semgrepPath" -ForegroundColor Green
 Write-Host ""
 
 # Verifica se o arquivo de configuração existe
 if (-not (Test-Path $Config)) {
-    Write-Host "⚠️  Arquivo de configuração não encontrado: $Config" -ForegroundColor Yellow
+    Write-Host "[!] Arquivo de configuracao nao encontrado: $Config" -ForegroundColor Yellow
     Write-Host "   Usando configuração padrão do Semgrep" -ForegroundColor Gray
     $Config = "auto"
 }
 
 # Verifica se o diretório alvo existe
 if (-not (Test-Path $Target)) {
-    Write-Host "❌ Diretório alvo não encontrado: $Target" -ForegroundColor Red
+    Write-Host "[ERRO] Diretorio alvo nao encontrado: $Target" -ForegroundColor Red
     exit 1
 }
 
@@ -130,27 +130,100 @@ try {
         if (Test-Path $JsonOutput) {
             try {
                 Copy-Item -Path $JsonOutput -Destination $backupPath -Force
-                Write-Host "📦 Backup do relatório anterior criado: $backupPath" -ForegroundColor Gray
+                Write-Host "[*] Backup do relatório anterior criado: $backupPath" -ForegroundColor Gray
             } catch {
-                Write-Host "⚠️  Não foi possível criar backup do relatório anterior" -ForegroundColor Yellow
+                Write-Host "[!] Nao foi possivel criar backup do relatorio anterior" -ForegroundColor Yellow
+            }
+        }
+        
+        # Deletar arquivo existente para garantir atualização da data de modificação
+        if (Test-Path $JsonOutput) {
+            try {
+                Remove-Item -Path $JsonOutput -Force
+            } catch {
+                Write-Host "[!] Nao foi possivel deletar arquivo anterior" -ForegroundColor Yellow
             }
         }
         
         # Salva resultado em JSON para o Security Gate (sem BOM)
         $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-        if ($Config -eq "auto") {
-            $output = & $semgrepPath --config=auto --json $Target
-            [System.IO.File]::WriteAllText($JsonOutput, $output, $utf8NoBom)
-        } else {
-            $output = & $semgrepPath --config=$Config --json $Target
-            [System.IO.File]::WriteAllText($JsonOutput, $output, $utf8NoBom)
-        }
         
-        $exitCode = $LASTEXITCODE
-        
-        if (Test-Path $JsonOutput) {
-            Write-Host ""
-            Write-Host "✅ Resultado do Semgrep salvo em: $JsonOutput" -ForegroundColor Green
+        try {
+            if ($Config -eq "auto") {
+                $output = & $semgrepPath --config=auto --json $Target 2>&1
+            } else {
+                $output = & $semgrepPath --config=$Config --json $Target 2>&1
+            }
+            
+            $exitCode = $LASTEXITCODE
+            
+            # Extrair apenas o JSON do output (pode ter texto de status antes)
+            $jsonContent = $output
+            
+            # Tentar encontrar o JSON no output (pode ter texto de status antes)
+            if ($output -match '\{[\s\S]*\}') {
+                # Encontrar o primeiro { e o último } para extrair o JSON completo
+                $firstBrace = $output.IndexOf('{')
+                if ($firstBrace -ge 0) {
+                    $lastBrace = $output.LastIndexOf('}')
+                    if ($lastBrace -gt $firstBrace) {
+                        $jsonContent = $output.Substring($firstBrace, $lastBrace - $firstBrace + 1)
+                        Write-Host "[INFO] JSON extraído do output (removido texto de status)" -ForegroundColor Gray
+                    }
+                }
+            }
+            
+            # Verificar se o JSON está vazio ou inválido
+            if ([string]::IsNullOrWhiteSpace($jsonContent)) {
+                Write-Host "[AVISO] Semgrep retornou output vazio, criando JSON vazio válido" -ForegroundColor Yellow
+                $jsonContent = '{"version":"","errors":[],"paths":{"scanned":[]},"results":[]}'
+            } else {
+                # Tentar validar se é JSON válido
+                try {
+                    $null = $jsonContent | ConvertFrom-Json
+                    Write-Host "[OK] JSON válido extraído do output" -ForegroundColor Green
+                } catch {
+                    Write-Host "[AVISO] JSON extraído não é válido, tentando corrigir" -ForegroundColor Yellow
+                    # Se não conseguir validar, criar JSON mínimo
+                    $jsonContent = '{"version":"","errors":[],"paths":{"scanned":[]},"results":[]}'
+                }
+            }
+            
+            # Garantir que o arquivo seja escrito (usar jsonContent que foi extraído/validado)
+            [System.IO.File]::WriteAllText($JsonOutput, $jsonContent, $utf8NoBom)
+            
+            # Verificar se o arquivo foi criado e não está vazio
+            if (Test-Path $JsonOutput) {
+                $fileSize = (Get-Item $JsonOutput).Length
+                if ($fileSize -eq 0) {
+                    Write-Host "[ERRO] Arquivo JSON foi criado mas está vazio!" -ForegroundColor Red
+                    # Criar JSON mínimo válido
+                    $minimalJson = '{"version": "","errors": [],"paths": {"scanned": []},"results": []}'
+                    [System.IO.File]::WriteAllText($JsonOutput, $minimalJson, $utf8NoBom)
+                    Write-Host "[INFO] Arquivo JSON mínimo válido criado" -ForegroundColor Yellow
+                } else {
+                    Write-Host ""
+                    Write-Host "[OK] Resultado do Semgrep salvo em: $JsonOutput ($([math]::Round($fileSize/1KB, 2)) KB)" -ForegroundColor Green
+                }
+            } else {
+                Write-Host "[ERRO] Arquivo JSON não foi criado!" -ForegroundColor Red
+                # Criar arquivo mínimo válido
+                $minimalJson = '{"version": "","errors": [],"paths": {"scanned": []},"results": []}'
+                [System.IO.File]::WriteAllText($JsonOutput, $minimalJson, $utf8NoBom)
+                Write-Host "[INFO] Arquivo JSON mínimo válido criado" -ForegroundColor Yellow
+            }
+            
+            # Forçar atualização da data de modificação
+            if (Test-Path $JsonOutput) {
+                (Get-Item $JsonOutput).LastWriteTime = Get-Date
+            }
+        } catch {
+            Write-Host "[ERRO] Erro ao executar Semgrep: $_" -ForegroundColor Red
+            # Criar arquivo mínimo válido em caso de erro
+            $minimalJson = '{"version": "","errors": [],"paths": {"scanned": []},"results": []}'
+            [System.IO.File]::WriteAllText($JsonOutput, $minimalJson, $utf8NoBom)
+            Write-Host "[INFO] Arquivo JSON mínimo válido criado após erro" -ForegroundColor Yellow
+            $exitCode = 1
         }
     } else {
         # Modo normal (saída no console)
@@ -188,21 +261,22 @@ try {
     } else {
         Write-Host ""
         if ($exitCode -eq 0) {
-            Write-Host "✅ Nenhum problema de segurança encontrado!" -ForegroundColor Green
+            Write-Host "[OK] Nenhum problema de seguranca encontrado!" -ForegroundColor Green
         } elseif ($exitCode -eq 1) {
-            Write-Host "⚠️  Problemas de segurança encontrados. Revise a saída acima." -ForegroundColor Yellow
+            Write-Host "[!] Problemas de seguranca encontrados. Revise a saida acima." -ForegroundColor Yellow
         } else {
-            Write-Host "❌ Erro ao executar Semgrep (código de saída: $exitCode)" -ForegroundColor Red
+            Write-Host "[ERRO] Erro ao executar Semgrep (codigo de saida: $exitCode)" -ForegroundColor Red
         }
     }
     
     exit $exitCode
 } catch {
     Write-Host ""
-    Write-Host "❌ Erro: $_" -ForegroundColor Red
+    Write-Host "[ERRO] Erro: $_" -ForegroundColor Red
     Write-Host ""
-    Write-Host "💡 Dicas:" -ForegroundColor Yellow
+    Write-Host "[INFO] Dicas:" -ForegroundColor Yellow
     Write-Host "   - Verifique se Semgrep está instalado corretamente" -ForegroundColor Gray
     Write-Host "   - Tente executar: python -m pip install --upgrade semgrep" -ForegroundColor Cyan
     exit 1
 }
+

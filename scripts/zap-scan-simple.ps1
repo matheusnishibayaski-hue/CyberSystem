@@ -112,13 +112,13 @@ function Start-Server {
     $maxAttempts = 10
     while ($attempts -lt $maxAttempts) {
         if (Test-ServerHealth -Url $Target -Timeout 2) {
-            Write-Host "✅ Servidor iniciado com sucesso" -ForegroundColor Green
+            Write-Host "[OK] Servidor iniciado com sucesso" -ForegroundColor Green
             return $true
         }
         Start-Sleep -Seconds 1
         $attempts++
     }
-    Write-Host "⚠️  Servidor pode não ter iniciado completamente" -ForegroundColor Yellow
+    Write-Host "[!] Servidor pode nao ter iniciado completamente" -ForegroundColor Yellow
     return $false
 }
 
@@ -128,11 +128,11 @@ if ($Target -eq "http://localhost:3000") {
     $detectedPort = Find-ServerPort
     if ($null -ne $detectedPort) {
         $Target = "http://localhost:$detectedPort"
-        Write-Host "✅ Servidor detectado na porta $detectedPort" -ForegroundColor Green
+        Write-Host "[OK] Servidor detectado na porta $detectedPort" -ForegroundColor Green
         Write-Host ""
     } else {
         # Se não detectou, tenta a porta padrão mas não assume que está rodando
-        Write-Host "⚠️  Servidor não detectado automaticamente, tentando porta padrão 3000..." -ForegroundColor Yellow
+        Write-Host "[!] Servidor nao detectado automaticamente, tentando porta padrao 3000..." -ForegroundColor Yellow
         Write-Host ""
     }
 }
@@ -142,23 +142,23 @@ Write-Host "Verificando servidor em $Target..." -ForegroundColor Yellow
 $serverRunning = Test-ServerHealth -Url $Target
 
 if (-not $serverRunning) {
-    Write-Host "❌ Servidor não está acessível" -ForegroundColor Red
+    Write-Host "[ERRO] Servidor nao esta acessivel" -ForegroundColor Red
     
     if ($AutoStart) {
         Write-Host "Tentando iniciar automaticamente..." -ForegroundColor Yellow
         $started = Start-Server
         if (-not $started) {
-            Write-Host "❌ Não foi possível iniciar o servidor automaticamente" -ForegroundColor Red
-            Write-Host "💡 Inicie manualmente com: npm start" -ForegroundColor Yellow
+            Write-Host "[ERRO] Nao foi possivel iniciar o servidor automaticamente" -ForegroundColor Red
+            Write-Host "[INFO] Inicie manualmente com: npm start" -ForegroundColor Yellow
             exit 1
         }
     } else {
-        Write-Host "💡 Inicie o servidor com: npm start" -ForegroundColor Yellow
+        Write-Host "[INFO] Inicie o servidor com: npm start" -ForegroundColor Yellow
         Write-Host "   Ou use -AutoStart para iniciar automaticamente" -ForegroundColor Cyan
         exit 1
     }
 } else {
-    Write-Host "✅ Servidor está rodando" -ForegroundColor Green
+    Write-Host "[OK] Servidor esta rodando" -ForegroundColor Green
 }
 
 # Cria diretório se não existir
@@ -195,7 +195,7 @@ foreach ($test in $tests) {
             Secure = $response.StatusCode -eq $test.Expected
             Headers = $response.Headers
         }
-        $statusIcon = if ($response.StatusCode -eq $test.Expected) { "✅" } else { "⚠️" }
+        $statusIcon = if ($response.StatusCode -eq $test.Expected) { "OK" } else { "WARN" }
         Write-Host "  $statusIcon $($test.Method) $($test.Path) - Status: $($response.StatusCode)" -ForegroundColor $(if ($response.StatusCode -eq $test.Expected) { "Green" } else { "Yellow" })
     } catch {
         $statusCode = 0
@@ -211,7 +211,7 @@ foreach ($test in $tests) {
             Secure = $isExpected
             Error = $_.Exception.Message
         }
-        $statusIcon = if ($isExpected) { "✅" } else { "⚠️" }
+        $statusIcon = if ($isExpected) { "OK" } else { "WARN" }
         $statusText = if ($statusCode -gt 0) { "Status: $statusCode" } else { "Error: Connection failed" }
         Write-Host "  $statusIcon $($test.Method) $($test.Path) - $statusText" -ForegroundColor $(if ($isExpected) { "Green" } else { "Yellow" })
     }
@@ -228,13 +228,13 @@ try {
     foreach ($header in $securityHeaders) {
         if ($response.Headers[$header]) {
             $foundHeaders += $header
-            Write-Host "  ✅ $header presente" -ForegroundColor Green
+            Write-Host "  [OK] $header presente" -ForegroundColor Green
         } else {
-            Write-Host "  ⚠️  $header ausente" -ForegroundColor Yellow
+            Write-Host "  [!] $header ausente" -ForegroundColor Yellow
         }
     }
 } catch {
-    Write-Host "  ❌ Erro ao verificar headers" -ForegroundColor Red
+    Write-Host "  [ERRO] Erro ao verificar headers" -ForegroundColor Red
 }
 
 # Gera relatório HTML
@@ -265,12 +265,12 @@ $html = @"
 </head>
 <body>
     <div class="container">
-        <h1>🔒 Security Scan Report</h1>
+        <h1>Security Scan Report</h1>
         <p><strong>Target:</strong> $Target</p>
         <p><strong>Scan Date:</strong> $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
         <p><strong>Note:</strong> Este é um relatório simplificado. Para scan completo, use OWASP ZAP Desktop.</p>
         
-        <h2>📊 Endpoint Tests</h2>
+        <h2>Endpoint Tests</h2>
         <table>
             <tr>
                 <th>Endpoint</th>
@@ -282,7 +282,7 @@ $html = @"
 
 foreach ($result in $results) {
     $statusClass = if ($result.Secure) { "status-ok" } else { "status-warn" }
-    $statusText = if ($result.Secure) { "✅ OK" } else { "⚠️ Warning" }
+    $statusText = if ($result.Secure) { "OK" } else { "Warning" }
     $html += @"
             <tr>
                 <td>$($result.Endpoint)</td>
@@ -296,7 +296,7 @@ foreach ($result in $results) {
 $html += @"
         </table>
         
-        <h2>🛡️ Security Headers</h2>
+        <h2>Security Headers</h2>
         <table>
             <tr>
                 <th>Header</th>
@@ -306,7 +306,7 @@ $html += @"
 
 foreach ($header in $securityHeaders) {
     $present = $foundHeaders -contains $header
-    $status = if ($present) { '<span class="status-ok">✅ Present</span>' } else { '<span class="status-warn">⚠️ Missing</span>' }
+    $status = if ($present) { '<span class="status-ok">Present</span>' } else { '<span class="status-warn">Missing</span>' }
     $html += @"
             <tr>
                 <td>$header</td>
@@ -318,9 +318,9 @@ foreach ($header in $securityHeaders) {
 $html += @"
         </table>
         
-        <h2>📝 Recommendations</h2>
+        <h2>Recommendations</h2>
         <div class="test-result warning">
-            <strong>⚠️ Para scan completo de segurança:</strong>
+            <strong>Aviso: Para scan completo de seguranca:</strong>
             <ul>
                 <li>Instale OWASP ZAP Desktop: <a href="https://www.zaproxy.org/download/">https://www.zaproxy.org/download/</a></li>
                 <li>Execute scan completo com: <code>.\scripts\zap-scan.ps1</code></li>
@@ -337,17 +337,30 @@ $backupPath = $ReportPath -replace '\.html$', '-backup.html'
 if (Test-Path $ReportPath) {
     try {
         Copy-Item -Path $ReportPath -Destination $backupPath -Force
-        Write-Host "📦 Backup do relatório anterior criado: $backupPath" -ForegroundColor Gray
+        Write-Host "[*] Backup do relatorio anterior criado: $backupPath" -ForegroundColor Gray
     } catch {
-        Write-Host "⚠️  Não foi possível criar backup do relatório anterior" -ForegroundColor Yellow
+        Write-Host "[!] Nao foi possivel criar backup do relatorio anterior" -ForegroundColor Yellow
+    }
+    
+    # Deletar arquivo existente para garantir atualização da data de modificação
+    try {
+        Remove-Item -Path $ReportPath -Force
+    } catch {
+        Write-Host "[!] Nao foi possivel deletar arquivo anterior" -ForegroundColor Yellow
     }
 }
 
 # Salvar novo relatório
 $html | Out-File -FilePath $ReportPath -Encoding UTF8
 
+# Forçar atualização da data de modificação
+if (Test-Path $ReportPath) {
+    (Get-Item $ReportPath).LastWriteTime = Get-Date
+}
+
 Write-Host ""
-Write-Host "✅ Relatório gerado!" -ForegroundColor Green
-Write-Host "📄 Salvo em: $ReportPath" -ForegroundColor Cyan
+Write-Host "[OK] Relatorio gerado!" -ForegroundColor Green
+Write-Host "[INFO] Salvo em: $ReportPath" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "💡 Para scan completo, instale OWASP ZAP Desktop" -ForegroundColor Yellow
+Write-Host "[INFO] Para scan completo, instale OWASP ZAP Desktop" -ForegroundColor Yellow
+

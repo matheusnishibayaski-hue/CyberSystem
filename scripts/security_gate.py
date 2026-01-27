@@ -197,10 +197,20 @@ def save_gate_summary(summary: Dict[str, Any], output_file: str = "security-gate
             print(f"📦 Backup do relatório anterior criado: {backup_path}")
         except Exception as e:
             print(f"⚠️  Não foi possível criar backup: {e}")
+        
+        # Deletar arquivo existente para garantir atualização da data de modificação
+        try:
+            output_path.unlink()
+        except Exception as e:
+            print(f"⚠️  Não foi possível deletar arquivo anterior: {e}")
     
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
+        # Forçar atualização da data de modificação
+        import os
+        import time
+        os.utime(output_path, (time.time(), time.time()))
         print(f"\n💾 Resumo salvo em: {output_file}")
     except Exception as e:
         print(f"\n⚠️  Erro ao salvar resumo: {e}")

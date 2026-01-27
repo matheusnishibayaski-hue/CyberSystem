@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { Globe, Scan, AlertTriangle, Activity, RefreshCw, Shield, Zap, FileText, Loader2, ExternalLink } from "lucide-react"
@@ -23,7 +23,7 @@ export default function Dashboard() {
     }
   }, [user, authLoading, navigate])
 
-  // Buscar estatísticas reais da API
+  // Buscar estatísticas reais da API com polling automático
   const { data: statsData, isLoading: loadingStats, refetch: refetchStats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
@@ -31,19 +31,27 @@ export default function Dashboard() {
       return response.data.stats || { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 }
     },
     enabled: !!user,
-    initialData: { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 }
+    initialData: { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 },
+    refetchInterval: 30000, // Atualizar a cada 30 segundos
+    refetchIntervalInBackground: false,
+    staleTime: 10000,
+    cacheTime: 60000
   })
 
   const stats = statsData || { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 }
 
-  // Buscar atividade recente
-  const { data: activitiesData } = useQuery({
+  // Buscar atividade recente com polling automático
+  const { data: activitiesData, refetch: refetchActivity } = useQuery({
     queryKey: ['dashboard-activity'],
     queryFn: async () => {
       const response = await apiClient.get('/api/protected/dashboard/activity?limit=3')
       return response.data.activities || []
     },
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 30000, // Atualizar a cada 30 segundos
+    refetchIntervalInBackground: false,
+    staleTime: 10000,
+    cacheTime: 60000
   })
 
   const activities = activitiesData || []
@@ -62,6 +70,9 @@ export default function Dashboard() {
   const [isRunningSecurityScan, setIsRunningSecurityScan] = useState(false)
   const [isRunningZapScan, setIsRunningZapScan] = useState(false)
   const [isRunningZapFullScan, setIsRunningZapFullScan] = useState(false)
+  
+  // Ref para armazenar intervalos de polling
+  const pollingIntervalsRef = useRef([])
 
   // Estados para o modal de relatórios
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -73,15 +84,33 @@ export default function Dashboard() {
   const [lastReportTimestamps, setLastReportTimestamps] = useState({})
 
   // Buscar relatórios disponíveis com polling automático
-  const { data: reportsData, refetch: refetchReports } = useQuery({
+  const { data: reportsData, refetch: refetchReports, isFetching: isFetchingReports } = useQuery({
     queryKey: ['scan-reports'],
     queryFn: async () => {
-      const response = await apiClient.get('/api/protected/scans/reports')
-      return response.data.reports || []
+      try {
+        const response = await apiClient.get('/api/protected/scans/reports', {
+          // Adicionar timestamp para evitar cache
+          params: { _t: Date.now() }
+        })
+        return response.data.reports || []
+      } catch (error) {
+        // Silenciar erros esperados (arquivos não encontrados são normais)
+        if (error.response?.status === 404 || error.response?.status === 500) {
+          // Retornar array vazio em caso de erro, não propagar
+          return []
+        }
+        throw error
+      }
     },
     enabled: !!user,
-    refetchInterval: 15000, // Verificar a cada 15 segundos
-    refetchIntervalInBackground: true // Continuar verificando mesmo quando a aba não está ativa
+    refetchInterval: 30000, // Verificar a cada 30 segundos (reduzido para evitar spam)
+    refetchIntervalInBackground: false, // Não verificar quando a aba não está ativa
+    staleTime: 10000, // Dados válidos por 10 segundos
+    cacheTime: 60000, // Manter cache por 1 minuto
+    refetchOnMount: true, // Sempre buscar ao montar
+    refetchOnWindowFocus: true, // Buscar quando a janela recebe foco
+    retry: 1, // Tentar apenas 1 vez em caso de erro
+    retryDelay: 2000 // Aguardar 2 segundos entre tentativas
   })
 
   const reports = reportsData || []
@@ -92,6 +121,7 @@ export default function Dashboard() {
 
     setLastReportTimestamps(prev => {
       const currentTimestamps = { ...prev }
+      const newReports = []
 
       reports.forEach((report) => {
         if (report.exists && report.lastModified) {
@@ -101,21 +131,30 @@ export default function Dashboard() {
 
           // Se já temos um timestamp anterior e o atual é mais recente, é um novo relatório
           if (lastTimestamp && currentTimestamp > lastTimestamp) {
-            const reportNames = {
-              'security': 'Semgrep Security Scan',
-              'zap': 'OWASP ZAP Scan Report',
-              'security-gate': 'Security Gate Summary'
-            }
-            
-            toast.success(`📄 Novo relatório disponível: ${reportNames[reportKey] || report.name}`, {
-              duration: 5000
-            })
+            newReports.push(reportKey)
           }
 
           // Atualizar timestamp
           currentTimestamps[reportKey] = currentTimestamp
         }
       })
+
+      // Mostrar notificações após atualizar o estado (evita setState durante render)
+      if (newReports.length > 0) {
+        setTimeout(() => {
+          const reportNames = {
+            'security': 'Semgrep Security Scan',
+            'zap': 'OWASP ZAP Scan Report',
+            'security-gate': 'Security Gate Summary'
+          }
+          
+          newReports.forEach(reportKey => {
+            toast.success(`📄 Novo relatório disponível: ${reportNames[reportKey] || 'Relatório'}`, {
+              duration: 5000
+            })
+          })
+        }, 0)
+      }
 
       return currentTimestamps
     })
@@ -127,19 +166,54 @@ export default function Dashboard() {
     toast.success("Dados atualizados!")
   }
 
+  // Limpar intervalos ao desmontar
+  useEffect(() => {
+    return () => {
+      pollingIntervalsRef.current.forEach(interval => clearInterval(interval))
+      pollingIntervalsRef.current.length = 0
+    }
+  }, [])
+
   // Executar scan de segurança (Semgrep)
   const handleRunSecurityScan = async () => {
     setIsRunningSecurityScan(true)
     try {
       const response = await apiClient.post('/api/protected/scans/security')
       toast.success(response.data.message || 'Scan de segurança iniciado!')
-      // Aguardar um pouco e atualizar relatórios
+      
+      // Polling moderado após iniciar o scan (não criar intervalo manual, usar refetch do useQuery)
+      // Apenas forçar refetch algumas vezes após iniciar o scan
+      let pollCount = 0
+      const maxPolls = 12 // 12 tentativas = 6 minutos (30s cada)
+      const pollInterval = setInterval(() => {
+        pollCount++
+        try {
+          refetchReports().catch(() => {}) // Silenciar erros de refetch
+          refetchStats().catch(() => {}) // Silenciar erros de refetch
+          refetchActivity().catch(() => {}) // Atualizar atividade também
+        } catch (err) {
+          // Ignorar erros silenciosamente
+        }
+        
+        // Parar polling após maxPolls
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval)
+          const index = pollingIntervalsRef.current.indexOf(pollInterval)
+          if (index > -1) pollingIntervalsRef.current.splice(index, 1)
+        }
+      }, 30000) // Poll a cada 30 segundos (reduzido)
+      
+      pollingIntervalsRef.current.push(pollInterval)
+      
+      // Limpar intervalo após 6 minutos
       setTimeout(() => {
-        refetchReports()
-        refetchStats()
-      }, 3000)
+        clearInterval(pollInterval)
+        const index = pollingIntervalsRef.current.indexOf(pollInterval)
+        if (index > -1) pollingIntervalsRef.current.splice(index, 1)
+      }, 360000) // 6 minutos máximo
     } catch (error) {
       toast.error(error.response?.data?.message || 'Erro ao iniciar scan de segurança')
+      console.error('Erro ao iniciar scan:', error)
     } finally {
       setIsRunningSecurityScan(false)
     }
@@ -151,11 +225,36 @@ export default function Dashboard() {
     try {
       const response = await apiClient.post('/api/protected/scans/zap', { scanType: 'simple' })
       toast.success(response.data.message || 'Scan ZAP iniciado!')
+      
+      // Polling moderado após iniciar o scan
+      let pollCount = 0
+      const maxPolls = 12 // 12 tentativas = 6 minutos (30s cada)
+      const pollInterval = setInterval(() => {
+        pollCount++
+        try {
+          refetchReports().catch(() => {}) // Silenciar erros de refetch
+          refetchStats().catch(() => {}) // Silenciar erros de refetch
+          refetchActivity().catch(() => {}) // Atualizar atividade também
+        } catch (err) {
+          // Ignorar erros silenciosamente
+        }
+        
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval)
+          const index = pollingIntervalsRef.current.indexOf(pollInterval)
+          if (index > -1) pollingIntervalsRef.current.splice(index, 1)
+        }
+      }, 30000) // Poll a cada 30 segundos
+      
+      pollingIntervalsRef.current.push(pollInterval)
+      
       setTimeout(() => {
-        refetchReports()
-        refetchStats()
-      }, 3000)
+        clearInterval(pollInterval)
+        const index = pollingIntervalsRef.current.indexOf(pollInterval)
+        if (index > -1) pollingIntervalsRef.current.splice(index, 1)
+      }, 360000) // 6 minutos máximo
     } catch (error) {
+      // Apenas mostrar toast, não logar no console (evitar spam)
       toast.error(error.response?.data?.message || 'Erro ao iniciar scan ZAP')
     } finally {
       setIsRunningZapScan(false)
@@ -168,11 +267,36 @@ export default function Dashboard() {
     try {
       const response = await apiClient.post('/api/protected/scans/zap', { scanType: 'full' })
       toast.success(response.data.message || 'Scan ZAP completo iniciado!')
+      
+      // Polling moderado após iniciar o scan (ZAP completo pode demorar mais)
+      let pollCount = 0
+      const maxPolls = 20 // 20 tentativas = 10 minutos (30s cada)
+      const pollInterval = setInterval(() => {
+        pollCount++
+        try {
+          refetchReports().catch(() => {}) // Silenciar erros de refetch
+          refetchStats().catch(() => {}) // Silenciar erros de refetch
+          refetchActivity().catch(() => {}) // Atualizar atividade também
+        } catch (err) {
+          // Ignorar erros silenciosamente
+        }
+        
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval)
+          const index = pollingIntervalsRef.current.indexOf(pollInterval)
+          if (index > -1) pollingIntervalsRef.current.splice(index, 1)
+        }
+      }, 30000) // Poll a cada 30 segundos
+      
+      pollingIntervalsRef.current.push(pollInterval)
+      
       setTimeout(() => {
-        refetchReports()
-        refetchStats()
-      }, 3000)
+        clearInterval(pollInterval)
+        const index = pollingIntervalsRef.current.indexOf(pollInterval)
+        if (index > -1) pollingIntervalsRef.current.splice(index, 1)
+      }, 600000) // 10 minutos máximo
     } catch (error) {
+      // Apenas mostrar toast, não logar no console (evitar spam)
       toast.error(error.response?.data?.message || 'Erro ao iniciar scan ZAP completo')
     } finally {
       setIsRunningZapFullScan(false)
@@ -182,6 +306,22 @@ export default function Dashboard() {
   // Abrir/visualizar relatório no modal
   const handleOpenReport = async (reportTypeParam) => {
     try {
+      setIsModalOpen(false) // Fechar modal anterior se estiver aberto
+      setReportData(null) // Limpar dados anteriores
+      setReportType(null) // Limpar tipo anterior
+      
+      // Determinar título do modal
+      const titles = {
+        'security': 'Relatório Semgrep Security Scan',
+        'zap': 'Relatório OWASP ZAP',
+        'security-gate': 'Security Gate Summary'
+      }
+      setModalTitle(titles[reportTypeParam] || 'Relatório')
+      
+      // Abrir modal primeiro para mostrar loading
+      setIsModalOpen(true)
+      
+      // Usar fetch direto para ter controle total sobre o responseType
       const token = localStorage.getItem('auth_token')
       const baseURL = apiClient.defaults.baseURL || 'http://localhost:3000'
       const url = `${baseURL}/api/protected/scans/reports/${reportTypeParam}`
@@ -193,33 +333,52 @@ export default function Dashboard() {
       })
       
       if (!response.ok) {
-        throw new Error('Erro ao carregar relatório')
+        // Se for 404, arquivo não existe (é esperado, não mostrar erro)
+        if (response.status === 404) {
+          toast.error('Relatório ainda não foi gerado')
+          setIsModalOpen(false)
+          return
+        }
+        const errorData = await response.json().catch(() => ({ message: 'Erro ao carregar relatório' }))
+        throw new Error(errorData.message || `Erro ${response.status}: ${response.statusText}`)
       }
-
-      // Determinar título do modal
-      const titles = {
-        'security': 'Relatório Semgrep Security Scan',
-        'zap': 'Relatório OWASP ZAP',
-        'security-gate': 'Security Gate Summary'
-      }
-      setModalTitle(titles[reportTypeParam] || 'Relatório')
 
       if (reportTypeParam === 'zap') {
-        // Para HTML, obter o conteúdo
+        // Para HTML, obter como texto
         const htmlContent = await response.text()
+        if (!htmlContent || htmlContent.trim().length === 0) {
+          throw new Error('Relatório HTML está vazio')
+        }
         setReportData(htmlContent)
         setReportType('zap')
       } else {
-        // Para JSON, parsear os dados
-        const jsonData = await response.json()
+        // Para JSON, obter como texto primeiro para validar
+        const textContent = await response.text()
+        
+        if (!textContent || textContent.trim().length === 0) {
+          throw new Error('Relatório JSON está vazio')
+        }
+        
+        // Tentar parsear o JSON
+        let jsonData
+        try {
+          jsonData = JSON.parse(textContent)
+        } catch (parseError) {
+          console.error('Erro ao parsear JSON:', parseError)
+          console.error('Conteúdo recebido:', textContent.substring(0, 200))
+          throw new Error('Relatório JSON inválido ou corrompido')
+        }
+        
         setReportData(jsonData)
         setReportType(reportTypeParam)
       }
-
-      setIsModalOpen(true)
     } catch (error) {
-      toast.error('Erro ao carregar relatório')
-      console.error('Erro:', error)
+      // Apenas mostrar toast, não logar no console (evitar spam)
+      const errorMessage = error.message || 'Erro ao carregar relatório'
+      toast.error(errorMessage)
+      setIsModalOpen(false) // Fechar modal em caso de erro
+      setReportData(null)
+      setReportType(null)
     }
   }
 
@@ -354,16 +513,35 @@ export default function Dashboard() {
           {/* Relatórios Disponíveis */}
           {reports.length > 0 && (
             <div className="mt-4 pt-4 border-t border-slate-700/50">
-              <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Relatórios Disponíveis
-              </h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Relatórios Disponíveis
+                  {isFetchingReports && (
+                    <span className="text-xs text-gray-400 ml-2 flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Atualizando...
+                    </span>
+                  )}
+                </h4>
+                <Button
+                  onClick={() => {
+                    refetchReports()
+                    toast.success('Relatórios atualizados!')
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="text-gray-400 hover:text-white"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {reports.map((report, index) => (
+                {reports.map((report) => (
                   <div
-                    key={index}
+                    key={`${report.type}-${report.lastModified || 'none'}`}
                     onClick={() => report.exists && handleOpenReport(report.type)}
-                    className={`p-3 rounded-lg border transition-all ${
+                    className={`p-3 rounded-lg border transition-all group ${
                       report.exists
                         ? 'bg-slate-800/30 border-green-500/30 cursor-pointer hover:bg-slate-800/50 hover:border-green-500/50 hover:shadow-lg hover:shadow-green-500/10'
                         : 'bg-slate-800/10 border-slate-700/30 opacity-50 cursor-not-allowed'
@@ -374,7 +552,14 @@ export default function Dashboard() {
                         <p className="text-xs font-medium text-white">{report.name}</p>
                         {report.exists && report.lastModified && (
                           <p className="text-xs text-gray-400 mt-1">
-                            {new Date(report.lastModified).toLocaleString('pt-BR')}
+                            {new Date(report.lastModified).toLocaleString('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit'
+                            })}
                           </p>
                         )}
                         {!report.exists && (
@@ -383,7 +568,7 @@ export default function Dashboard() {
                       </div>
                       {report.exists && (
                         <div className="flex items-center gap-2 ml-2">
-                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                           <ExternalLink className="w-3 h-3 text-green-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
                       )}
