@@ -32,50 +32,55 @@ jobs:
         run: |
           semgrep --config=security/semgrep.yml --json src/ frontend/src/ > semgrep-result.json || true
 
-      - name: 🚪 Security Gate Inteligente
-        id: security_gate
+      - name: 💡 Análise e Sugestões de Correção
+        id: suggestions
         continue-on-error: true
         run: |
           if [ -f semgrep-result.json ]; then
             if [ "${{ env.FAIL_ON_CRITICAL }}" = "true" ]; then
-              python scripts/security_gate.py --file semgrep-result.json --fail-on-critical --show-all
+              python scripts/semgrep_suggestions.py --file semgrep-result.json
             else
-              python scripts/security_gate.py --file semgrep-result.json --show-all
+              python scripts/semgrep_suggestions.py --file semgrep-result.json --no-fail
             fi
           else
             echo "⚠️  Arquivo semgrep-result.json não encontrado"
-            echo "status=clean" >> $GITHUB_OUTPUT
           fi
 
-      - name: 📊 Gerar Resumo do Security Gate
+      - name: 📊 Gerar Resumo de Segurança
         if: always()
         run: |
-          if [ -f security-gate-summary.json ]; then
-            echo "## 🛡️ Security Gate - Resumo" >> $GITHUB_STEP_SUMMARY
+          if [ -f semgrep-result.json ]; then
+            echo "## 🛡️ Análise de Segurança - Resumo" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             python3 << 'EOF'
           import json
           import sys
           
           try:
-              with open('security-gate-summary.json', 'r') as f:
-                  summary = json.load(f)
+              with open('semgrep-result.json', 'r') as f:
+                  results = json.load(f)
               
-              total = summary.get('total', 0)
-              critical = summary.get('critical', 0)
-              warning = summary.get('warning', 0)
-              info = summary.get('info', 0)
-              status = summary.get('status', 'clean')
+              findings = results.get('results', [])
               
-              # Emoji por status
-              status_emoji = {
-                  'clean': '✅',
-                  'info': '🔵',
-                  'warning': '🟠',
-                  'critical': '🔴'
-              }
+              # Conta por severidade
+              critical = sum(1 for f in findings if f.get('extra', {}).get('severity') == 'ERROR')
+              warning = sum(1 for f in findings if f.get('extra', {}).get('severity') == 'WARNING')
+              info = sum(1 for f in findings if f.get('extra', {}).get('severity') == 'INFO')
+              total = len(findings)
               
-              emoji = status_emoji.get(status, '❓')
+              # Status
+              if critical > 0:
+                  status = 'critical'
+                  emoji = '🔴'
+              elif warning > 0:
+                  status = 'warning'
+                  emoji = '🟠'
+              elif info > 0:
+                  status = 'info'
+                  emoji = '🔵'
+              else:
+                  status = 'clean'
+                  emoji = '✅'
               
               print(f"{emoji} **Status:** {status.upper()}")
               print("")
@@ -101,7 +106,7 @@ jobs:
               print(f"⚠️ Erro ao gerar resumo: {e}")
           EOF
           else
-            echo "## 🛡️ Security Gate - Resumo" >> $GITHUB_STEP_SUMMARY
+            echo "## 🛡️ Análise de Segurança - Resumo" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ Resumo não disponível" >> $GITHUB_STEP_SUMMARY
           fi
@@ -113,5 +118,4 @@ jobs:
           name: security-scan-results
           path: |
             semgrep-result.json
-            security-gate-summary.json
           retention-days: 30
