@@ -1,11 +1,13 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
-import { Globe, Scan, AlertTriangle, Activity, RefreshCw } from "lucide-react"
+import { Globe, Scan, AlertTriangle, Activity, RefreshCw, Shield, Zap, FileText, Loader2, ExternalLink } from "lucide-react"
 import Sidebar from "@/components/cyber/Sidebar"
 import StatsCard from "@/components/cyber/StatsCard"
 import AlertsChart from "@/components/cyber/AlertsChart"
 import { Button } from "@/components/ui/button"
+import { Modal } from "@/components/ui/modal"
+import { SemgrepReportViewer, ZapReportViewer, SecurityGateReportViewer } from "@/components/cyber/ReportViewer"
 import { useAuth } from "@/lib/AuthContext"
 import { useQuery } from "@tanstack/react-query"
 import apiClient from "@/api/client"
@@ -56,9 +58,129 @@ export default function Dashboard() {
     enabled: !!user
   })
 
+  // Estados para os scans
+  const [isRunningSecurityScan, setIsRunningSecurityScan] = useState(false)
+  const [isRunningZapScan, setIsRunningZapScan] = useState(false)
+  const [isRunningZapFullScan, setIsRunningZapFullScan] = useState(false)
+
+  // Estados para o modal de relatórios
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [modalTitle, setModalTitle] = useState("")
+  const [reportData, setReportData] = useState(null)
+  const [reportType, setReportType] = useState(null)
+
+  // Buscar relatórios disponíveis
+  const { data: reportsData, refetch: refetchReports } = useQuery({
+    queryKey: ['scan-reports'],
+    queryFn: async () => {
+      const response = await apiClient.get('/api/protected/scans/reports')
+      return response.data.reports || []
+    },
+    enabled: !!user
+  })
+
+  const reports = reportsData || []
+
   const handleRefresh = () => {
     refetchStats()
+    refetchReports()
     toast.success("Dados atualizados!")
+  }
+
+  // Executar scan de segurança (Semgrep)
+  const handleRunSecurityScan = async () => {
+    setIsRunningSecurityScan(true)
+    try {
+      const response = await apiClient.post('/api/protected/scans/security')
+      toast.success(response.data.message || 'Scan de segurança iniciado!')
+      // Aguardar um pouco e atualizar relatórios
+      setTimeout(() => {
+        refetchReports()
+        refetchStats()
+      }, 3000)
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Erro ao iniciar scan de segurança')
+    } finally {
+      setIsRunningSecurityScan(false)
+    }
+  }
+
+  // Executar scan ZAP simplificado
+  const handleRunZapScan = async () => {
+    setIsRunningZapScan(true)
+    try {
+      const response = await apiClient.post('/api/protected/scans/zap', { scanType: 'simple' })
+      toast.success(response.data.message || 'Scan ZAP iniciado!')
+      setTimeout(() => {
+        refetchReports()
+        refetchStats()
+      }, 3000)
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Erro ao iniciar scan ZAP')
+    } finally {
+      setIsRunningZapScan(false)
+    }
+  }
+
+  // Executar scan ZAP completo
+  const handleRunZapFullScan = async () => {
+    setIsRunningZapFullScan(true)
+    try {
+      const response = await apiClient.post('/api/protected/scans/zap', { scanType: 'full' })
+      toast.success(response.data.message || 'Scan ZAP completo iniciado!')
+      setTimeout(() => {
+        refetchReports()
+        refetchStats()
+      }, 3000)
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Erro ao iniciar scan ZAP completo')
+    } finally {
+      setIsRunningZapFullScan(false)
+    }
+  }
+
+  // Abrir/visualizar relatório no modal
+  const handleOpenReport = async (reportTypeParam) => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      const baseURL = apiClient.defaults.baseURL || 'http://localhost:3000'
+      const url = `${baseURL}/api/protected/scans/reports/${reportTypeParam}`
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error('Erro ao carregar relatório')
+      }
+
+      // Determinar título do modal
+      const titles = {
+        'security': 'Relatório Semgrep Security Scan',
+        'zap': 'Relatório OWASP ZAP',
+        'security-gate': 'Security Gate Summary'
+      }
+      setModalTitle(titles[reportTypeParam] || 'Relatório')
+
+      if (reportTypeParam === 'zap') {
+        // Para HTML, obter o conteúdo
+        const htmlContent = await response.text()
+        setReportData(htmlContent)
+        setReportType('zap')
+      } else {
+        // Para JSON, parsear os dados
+        const jsonData = await response.json()
+        setReportData(jsonData)
+        setReportType(reportTypeParam)
+      }
+
+      setIsModalOpen(true)
+    } catch (error) {
+      toast.error('Erro ao carregar relatório')
+      console.error('Erro:', error)
+    }
   }
 
   if (authLoading) {
@@ -121,6 +243,117 @@ export default function Dashboard() {
             color="cyan"
           />
         </div>
+
+        {/* Ações Rápidas */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="mb-8 bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-2xl p-6 backdrop-blur-xl"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white">🔒 Ações de Segurança</h3>
+              <p className="text-gray-400 text-sm mt-1">Execute scans de segurança com um clique</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            {/* Botão Scan Semgrep */}
+            <Button
+              onClick={handleRunSecurityScan}
+              disabled={isRunningSecurityScan}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white border-0 h-auto py-4 px-6 flex flex-col items-center gap-2"
+            >
+              {isRunningSecurityScan ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Shield className="w-5 h-5" />
+              )}
+              <span className="font-semibold">
+                {isRunningSecurityScan ? 'Executando...' : 'Scan Semgrep'}
+              </span>
+              <span className="text-xs opacity-90">Análise estática de código</span>
+            </Button>
+
+            {/* Botão Scan ZAP Simples */}
+            <Button
+              onClick={handleRunZapScan}
+              disabled={isRunningZapScan}
+              className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white border-0 h-auto py-4 px-6 flex flex-col items-center gap-2"
+            >
+              {isRunningZapScan ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Zap className="w-5 h-5" />
+              )}
+              <span className="font-semibold">
+                {isRunningZapScan ? 'Executando...' : 'Scan ZAP Simples'}
+              </span>
+              <span className="text-xs opacity-90">Testes básicos de segurança</span>
+            </Button>
+
+            {/* Botão Scan ZAP Completo */}
+            <Button
+              onClick={handleRunZapFullScan}
+              disabled={isRunningZapFullScan}
+              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white border-0 h-auto py-4 px-6 flex flex-col items-center gap-2"
+            >
+              {isRunningZapFullScan ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Scan className="w-5 h-5" />
+              )}
+              <span className="font-semibold">
+                {isRunningZapFullScan ? 'Executando...' : 'Scan ZAP Completo'}
+              </span>
+              <span className="text-xs opacity-90">Análise completa OWASP ZAP</span>
+            </Button>
+          </div>
+
+          {/* Relatórios Disponíveis */}
+          {reports.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-700/50">
+              <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Relatórios Disponíveis
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {reports.map((report, index) => (
+                  <div
+                    key={index}
+                    onClick={() => report.exists && handleOpenReport(report.type)}
+                    className={`p-3 rounded-lg border transition-all ${
+                      report.exists
+                        ? 'bg-slate-800/30 border-green-500/30 cursor-pointer hover:bg-slate-800/50 hover:border-green-500/50 hover:shadow-lg hover:shadow-green-500/10'
+                        : 'bg-slate-800/10 border-slate-700/30 opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-white">{report.name}</p>
+                        {report.exists && report.lastModified && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {new Date(report.lastModified).toLocaleString('pt-BR')}
+                          </p>
+                        )}
+                        {!report.exists && (
+                          <p className="text-xs text-gray-500 mt-1">Não disponível</p>
+                        )}
+                      </div>
+                      {report.exists && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                          <ExternalLink className="w-3 h-3 text-green-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </motion.div>
 
         {/* Chart */}
         <AlertsChart data={chartData} />
@@ -194,6 +427,22 @@ export default function Dashboard() {
           </div>
         </motion.div>
       </main>
+
+      {/* Modal de Relatórios */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false)
+          setReportData(null)
+          setReportType(null)
+        }}
+        title={modalTitle}
+        size="xl"
+      >
+        {reportType === 'security' && <SemgrepReportViewer data={reportData} />}
+        {reportType === 'zap' && <ZapReportViewer htmlContent={reportData} />}
+        {reportType === 'security-gate' && <SecurityGateReportViewer data={reportData} />}
+      </Modal>
     </div>
   )
 }
