@@ -3,9 +3,19 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Adicionar coluna is_active se não existir
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='users' AND column_name='is_active') THEN
+        ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+    END IF;
+END $$;
 
 -- Índice para busca rápida por email
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -98,3 +108,43 @@ CREATE INDEX IF NOT EXISTS idx_security_logs_type ON security_logs(log_type);
 CREATE INDEX IF NOT EXISTS idx_security_logs_severity ON security_logs(severity);
 CREATE INDEX IF NOT EXISTS idx_security_logs_created_at ON security_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_security_logs_user_id ON security_logs(user_id);
+
+-- Tabela de configurações administrativas
+CREATE TABLE IF NOT EXISTS admin_config (
+    id SERIAL PRIMARY KEY,
+    master_key VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Função para gerar chave mestra aleatória
+CREATE OR REPLACE FUNCTION generate_master_key()
+RETURNS VARCHAR(255) AS $$
+DECLARE
+    chars TEXT := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    result VARCHAR(255) := '';
+    i INTEGER;
+    char_index INTEGER;
+BEGIN
+    FOR i IN 1..20 LOOP
+        char_index := floor(random() * length(chars) + 1)::INTEGER;
+        result := result || substr(chars, char_index, 1);
+    END LOOP;
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Inicializar chave mestra se não existir
+DO $$
+DECLARE
+    key_exists BOOLEAN;
+    new_key VARCHAR(255);
+BEGIN
+    SELECT EXISTS(SELECT 1 FROM admin_config) INTO key_exists;
+    
+    IF NOT key_exists THEN
+        new_key := generate_master_key();
+        INSERT INTO admin_config (master_key) VALUES (new_key);
+        RAISE NOTICE 'Chave mestra gerada: %', new_key;
+    END IF;
+END $$;

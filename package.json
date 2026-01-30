@@ -9,6 +9,7 @@
     "test": "jest",
     "db:init": "node src/database/init.js",
     "db:seed": "node scripts/seed-data.js",
+    "get-master-key": "node scripts/get-master-key.js",
     "security-scan": "powershell -ExecutionPolicy Bypass -File scripts/security-scan.ps1",
     "zap-scan": "powershell -ExecutionPolicy Bypass -File scripts/zap-scan-simple.ps1",
     "zap-scan:auto": "powershell -ExecutionPolicy Bypass -File scripts/zap-scan-simple.ps1 -AutoStart",

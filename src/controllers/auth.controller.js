@@ -151,7 +151,7 @@ exports.login = async (req, res) => {
     let userResult;
     try {
       userResult = await query(
-        'SELECT id, email, password FROM users WHERE email = $1',
+        'SELECT id, email, password, is_active FROM users WHERE email = $1',
         [email]
       );
     } catch (dbError) {
@@ -165,54 +165,36 @@ exports.login = async (req, res) => {
 
     let user = userResult.rows[0];
     let loginSuccess = false;
-    let isNewUser = false;
 
-    // Se o usuário não existe, criar automaticamente (auto-registro)
+    // Usuário deve existir - não aceitar qualquer email
     if (!user) {
-      console.log(`📝 Usuário não encontrado. Criando novo usuário para: ${email}`);
-      
-      // Validar força da senha para novos usuários
-      const passwordValidation = validatePasswordStrength(password);
-      if (!passwordValidation.valid) {
-        return res.status(400).json({
-          error: 'Validation failed',
-          message: passwordValidation.message
-        });
-      }
-      
-      try {
-        // Hash da senha
-        const hash = await bcrypt.hash(password, 12);
-        
-        // Criar usuário no banco de dados
-        const createUserResult = await query(
-          'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, created_at',
-          [email, hash]
-        );
-        
-        user = createUserResult.rows[0];
+      return res.status(401).json({
+        error: 'Credenciais inválidas',
+        message: 'Email ou senha incorretos'
+      });
+    }
+
+    // Verificar se usuário está bloqueado
+    const userStatusResult = await query(
+      'SELECT is_active FROM users WHERE id = $1',
+      [user.id]
+    );
+
+    if (userStatusResult.rows.length > 0 && userStatusResult.rows[0].is_active === false) {
+      return res.status(403).json({
+        error: 'Account blocked',
+        message: 'Esta conta está bloqueada. Entre em contato com o administrador.'
+      });
+    }
+
+    // Usuário existe, verificar senha
+    try {
+      const valid = await bcrypt.compare(password, user.password);
+      if (valid) {
         loginSuccess = true;
-        isNewUser = true;
-        
-        console.log(`✅ Novo usuário criado com sucesso: ${email}`);
-      } catch (createError) {
-        console.error('Erro ao criar novo usuário:', createError);
-        return res.status(500).json({
-          error: 'Database error',
-          message: 'Erro ao criar novo usuário',
-          details: process.env.NODE_ENV === 'development' ? createError.message : undefined
-        });
       }
-    } else {
-      // Usuário existe, verificar senha
-      try {
-        const valid = await bcrypt.compare(password, user.password);
-        if (valid) {
-          loginSuccess = true;
-        }
-      } catch (bcryptError) {
-        console.error('Erro ao comparar senha:', bcryptError);
-      }
+    } catch (bcryptError) {
+      console.error('Erro ao comparar senha:', bcryptError);
     }
 
     // Register login attempt (for audit and security) - não bloqueia se falhar
@@ -251,13 +233,12 @@ exports.login = async (req, res) => {
     }
 
     res.json({
-      message: isNewUser ? 'Usuário criado e login realizado com sucesso' : 'Login realizado com sucesso',
+      message: 'Login realizado com sucesso',
       token,
       user: {
         id: user.id,
         email: user.email
-      },
-      isNewUser: isNewUser
+      }
     });
   } catch (error) {
     console.error('Login error:', error);

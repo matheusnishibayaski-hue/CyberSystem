@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Terminal } from "lucide-react";
 import TerminalBackground from "@/components/hacker/TerminalBackground";
 import MatrixIntro from "@/components/hacker/MatrixIntro";
+import AdminLogin from "@/pages/AdminLogin";
+import HatGlassesIcon from "@/components/hacker/HatGlassesIcon";
 import { useAuth } from "@/lib/AuthContext";
 import toast from "react-hot-toast";
 
@@ -18,6 +20,7 @@ export default function Login() {
   const [showLogin, setShowLogin] = useState(false);
   const [currentField, setCurrentField] = useState("username");
   const [showIntro, setShowIntro] = useState(true);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   useEffect(() => {
     const sequence = [
@@ -73,8 +76,28 @@ export default function Login() {
     }
   };
 
+  if (showAdminLogin) {
+    return <AdminLogin onBack={() => setShowAdminLogin(false)} />;
+  }
+
   return (
     <div className="min-h-screen bg-black text-green-500 font-mono relative overflow-hidden">
+      {/* Admin Access Button */}
+      <motion.button
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: 1 }}
+        onClick={() => setShowAdminLogin(true)}
+        className="fixed top-6 right-6 z-20 bg-transparent hover:opacity-80 transition-all group cursor-pointer"
+        title="Área do Administrador"
+      >
+        <img 
+          src="https://img.icons8.com/?size=100&id=v1JR7fsYAuq2&format=png&color=00FF41" 
+          alt="Admin" 
+          className="w-8 h-8 group-hover:animate-pulse"
+        />
+      </motion.button>
+
       <AnimatePresence mode="wait">
         {showIntro ? (
           <MatrixIntro onComplete={() => setShowIntro(false)} />
