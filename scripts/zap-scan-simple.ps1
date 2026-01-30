@@ -251,6 +251,8 @@ $html = @"
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1 { color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }
         h2 { color: #555; margin-top: 30px; }
+        .info-box { background: #d1ecf1; border-left: 4px solid #0c5460; padding: 12px; margin: 20px 0; border-radius: 4px; }
+        .info-box h3 { margin-top: 0; color: #0c5460; }
         .test-result { margin: 10px 0; padding: 10px; border-radius: 4px; }
         .success { background: #d4edda; border-left: 4px solid #28a745; }
         .warning { background: #fff3cd; border-left: 4px solid #ffc107; }
@@ -261,14 +263,25 @@ $html = @"
         .status-ok { color: #28a745; font-weight: bold; }
         .status-warn { color: #ffc107; font-weight: bold; }
         .status-error { color: #dc3545; font-weight: bold; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Security Scan Report</h1>
+        <h1>Security Scan Report (Simplified)</h1>
         <p><strong>Target:</strong> $Target</p>
         <p><strong>Scan Date:</strong> $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
-        <p><strong>Note:</strong> Este é um relatório simplificado. Para scan completo, use OWASP ZAP Desktop.</p>
+        
+        <div class="info-box">
+            <h3>ℹ️ Sobre este relatório</h3>
+            <p>Este é um <strong>relatório simplificado</strong> de segurança que não requer OWASP ZAP instalado.</p>
+            <p>Para um scan completo e mais detalhado, instale o OWASP ZAP Desktop:</p>
+            <ol>
+                <li>Baixe em: <a href="https://www.zaproxy.org/download/" target="_blank">https://www.zaproxy.org/download/</a></li>
+                <li>Instale e execute o OWASP ZAP Desktop</li>
+                <li>Execute novamente o scan completo através do sistema</li>
+            </ol>
+        </div>
         
         <h2>Endpoint Tests</h2>
         <table>
@@ -318,13 +331,19 @@ foreach ($header in $securityHeaders) {
 $html += @"
         </table>
         
-        <h2>Recommendations</h2>
-        <div class="test-result warning">
-            <strong>Aviso: Para scan completo de seguranca:</strong>
+        <h2>📋 Próximos Passos</h2>
+        <div class="info-box">
+            <h3>🔒 Melhorando a Segurança</h3>
+            <p>Este scan básico verificou endpoints e headers de segurança. Para uma análise mais profunda:</p>
             <ul>
-                <li>Instale OWASP ZAP Desktop: <a href="https://www.zaproxy.org/download/">https://www.zaproxy.org/download/</a></li>
-                <li>Execute scan completo com: <code>.\scripts\zap-scan.ps1</code></li>
-                <li>Ou use Docker: <code>docker run -t owasp/zap2docker-stable zap-baseline.py -t $Target</code></li>
+                <li><strong>Instale OWASP ZAP Desktop</strong> para scans completos com testes de vulnerabilidades avançados</li>
+                <li>Download: <a href="https://www.zaproxy.org/download/" target="_blank">https://www.zaproxy.org/download/</a></li>
+                <li>Após instalação, execute novamente o "ZAP FULL" scan através do Dashboard</li>
+            </ul>
+            <p><strong>Alternativas:</strong></p>
+            <ul>
+                <li>Docker: <code>docker run -t owasp/zap2docker-stable zap-baseline.py -t $Target</code></li>
+                <li>Python CLI: <code>python -m pip install --user zapcli</code></li>
             </ul>
         </div>
     </div>

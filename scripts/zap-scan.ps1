@@ -156,9 +156,55 @@ if (-not $serverRunning) {
     Write-Host "[OK] Servidor esta rodando em $Target" -ForegroundColor Green
 }
 
-# Função para encontrar ZAP CLI
+# Função para encontrar instalação do ZAP Desktop
+function Find-ZapInstallation {
+    $commonPaths = @(
+        "$env:ProgramFiles\ZAP\Zed Attack Proxy\zap.bat",
+        "$env:ProgramFiles\OWASP\Zed Attack Proxy\zap.bat",
+        "C:\Program Files\ZAP\Zed Attack Proxy\zap.bat",
+        "C:\Program Files (x86)\ZAP\Zed Attack Proxy\zap.bat",
+        "C:\Program Files\OWASP\Zed Attack Proxy\zap.bat",
+        "C:\Program Files (x86)\OWASP\Zed Attack Proxy\zap.bat",
+        "$env:LOCALAPPDATA\Programs\ZAP\zap.bat"
+    )
+    
+    foreach ($path in $commonPaths) {
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+    
+    return $null
+}
+
+# Função para encontrar ZAP CLI ou ZAP rodando
 function Find-ZapCli {
-    # Método 1: Verifica se zap-cli está no PATH
+    # Método 1: Verifica se ZAP está rodando na porta padrão (8080)
+    try {
+        $zapResponse = Invoke-WebRequest -Uri "http://localhost:8080" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        return @{
+            Found = $true
+            Method = "zap-running"
+            Path = ""
+            Location = "http://localhost:8080"
+            Running = $true
+        }
+    } catch {
+        # ZAP não está rodando, verificar se está instalado
+        $zapInstallPath = Find-ZapInstallation
+        
+        if ($null -ne $zapInstallPath) {
+            return @{
+                Found = $true
+                Method = "zap-installed"
+                Path = $zapInstallPath
+                Location = $zapInstallPath
+                Running = $false
+            }
+        }
+    }
+    
+    # Método 2: Verifica se zap-cli está no PATH
     try {
         $zapCli = Get-Command zap-cli -ErrorAction Stop
         return @{
@@ -166,9 +212,10 @@ function Find-ZapCli {
             Method = "zap-cli"
             Path = "zap-cli"
             Location = "PATH"
+            Running = $false
         }
     } catch {
-        # Método 2: Verifica diretórios comuns do Python
+        # Método 3: Verifica diretórios comuns do Python
         $pythonPaths = @(
             "$env:APPDATA\Python\Python314\Scripts\zap-cli.exe",
             "$env:APPDATA\Python\Python313\Scripts\zap-cli.exe",
@@ -185,26 +232,17 @@ function Find-ZapCli {
                     Method = "zap-cli"
                     Path = $path
                     Location = $path
+                    Running = $false
                 }
             }
         }
         
-        # Método 3: Verifica se ZAP está rodando na porta padrão (8080)
-        try {
-            $zapResponse = Invoke-WebRequest -Uri "http://localhost:8080" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-            return @{
-                Found = $true
-                Method = "zap-api"
-                Path = ""
-                Location = "http://localhost:8080"
-            }
-        } catch {
-            return @{
-                Found = $false
-                Method = ""
-                Path = ""
-                Location = ""
-            }
+        return @{
+            Found = $false
+            Method = ""
+            Path = ""
+            Location = ""
+            Running = $false
         }
     }
 }
@@ -268,20 +306,52 @@ Write-Host "Procurando OWASP ZAP..." -ForegroundColor Yellow
 $zapInfo = Find-ZapCli
 
 if (-not $zapInfo.Found) {
-    Write-Host "[!] ZAP nao encontrado automaticamente" -ForegroundColor Yellow
+    Write-Host "[!] ZAP nao encontrado no sistema" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Opções de instalação:" -ForegroundColor Yellow
-    Write-Host "1. Baixar OWASP ZAP Desktop: https://www.zaproxy.org/download/" -ForegroundColor Cyan
-    Write-Host "2. Usar Docker: docker run -t owasp/zap2docker-stable zap-baseline.py -t $Target" -ForegroundColor Cyan
-    Write-Host "3. Instalar zap-cli: python -m pip install --user zapcli" -ForegroundColor Cyan
+    Write-Host "[INFO] Executando scan simplificado..." -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "[INFO] Para usar zap-cli, voce precisa:" -ForegroundColor Yellow
-    Write-Host "   - Baixar e instalar OWASP ZAP Desktop" -ForegroundColor Gray
-    Write-Host "   - Ou usar Docker com ZAP" -ForegroundColor Gray
-    Write-FallbackReport -Reason "OWASP ZAP not found. Install ZAP or configure ZAP_PATH."
-    exit 0
+    
+    # Executar scan simplificado automaticamente
+    $simpleScanPath = Join-Path $PSScriptRoot "zap-scan-simple.ps1"
+    if (Test-Path $simpleScanPath) {
+        & $simpleScanPath -Target $Target -ReportPath $ReportPath
+        exit $LASTEXITCODE
+    } else {
+        Write-Host "[ERRO] Script de scan simplificado nao encontrado" -ForegroundColor Red
+        Write-FallbackReport -Reason "OWASP ZAP not available. Fallback scan script also missing."
+        exit 1
+    }
+} elseif ($zapInfo.Found -and -not $zapInfo.Running) {
+    # ZAP está instalado mas não está rodando
+    Write-Host "[!] OWASP ZAP Desktop encontrado, mas NAO esta rodando!" -ForegroundColor Yellow
+    Write-Host "[*] Localizacao: $($zapInfo.Location)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "=====================================" -ForegroundColor Cyan
+    Write-Host "  COMO EXECUTAR O SCAN COMPLETO:" -ForegroundColor Cyan
+    Write-Host "=====================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "1. Abra o OWASP ZAP Desktop" -ForegroundColor Yellow
+    Write-Host "   Localizacao: $($zapInfo.Location)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "2. Deixe o ZAP aberto em segundo plano" -ForegroundColor Yellow
+    Write-Host "   (Nao precisa fazer nada dentro do programa)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "3. Execute o scan novamente" -ForegroundColor Yellow
+    Write-Host "   O sistema vai detectar o ZAP automaticamente" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "=====================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "[INFO] Enquanto isso, executando scan simplificado..." -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Executar scan simplificado como fallback
+    $simpleScanPath = Join-Path $PSScriptRoot "zap-scan-simple.ps1"
+    if (Test-Path $simpleScanPath) {
+        & $simpleScanPath -Target $Target -ReportPath $ReportPath
+        exit $LASTEXITCODE
+    }
 } else {
-    Write-Host "[OK] ZAP encontrado: $($zapInfo.Method) em $($zapInfo.Location)" -ForegroundColor Green
+    Write-Host "[OK] ZAP encontrado e rodando: $($zapInfo.Location)" -ForegroundColor Green
     $zapAvailable = $true
     $zapMethod = $zapInfo.Method
     $zapCliPath = $zapInfo.Path
@@ -299,25 +369,62 @@ Write-Host "Target: $Target" -ForegroundColor Gray
 Write-Host "Timeout: $Timeout segundos" -ForegroundColor Gray
 Write-Host ""
 
-if ($zapMethod -eq "zap-cli") {
-    # Usa zap-cli para fazer o scan
+if ($zapMethod -eq "zap-running" -or $zapMethod -eq "zap-cli") {
+    # Usa ZAP API ou zap-cli para fazer o scan
     try {
-        Write-Host "Executando scan com zap-cli..." -ForegroundColor Yellow
-        Write-Host "[!] Nota: zap-cli requer OWASP ZAP instalado e rodando" -ForegroundColor Yellow
-        Write-Host ""
-        
-        # Quick scan (mais rápido) - requer ZAP rodando
-        & $zapCliPath quick-scan --self-contained --start-options '-config api.disablekey=true' $Target
+        if ($zapMethod -eq "zap-running") {
+            Write-Host "Executando scan usando ZAP API..." -ForegroundColor Yellow
+            Write-Host "[OK] ZAP Desktop esta rodando na porta 8080" -ForegroundColor Green
+            Write-Host ""
+            
+            # Usar Python para fazer chamadas à API do ZAP
+            # Por enquanto, vamos usar uma abordagem simples com Invoke-WebRequest
+            Write-Host "Iniciando spider scan..." -ForegroundColor Yellow
+            
+            try {
+                # Spider scan
+                $spiderResult = Invoke-WebRequest -Uri "http://localhost:8080/JSON/spider/action/scan/?url=$Target" -UseBasicParsing -TimeoutSec 5
+                Write-Host "[OK] Spider scan iniciado" -ForegroundColor Green
+                
+                # Aguardar spider completar (simplificado)
+                Start-Sleep -Seconds 5
+                
+                # Active scan
+                Write-Host "Iniciando active scan..." -ForegroundColor Yellow
+                $scanResult = Invoke-WebRequest -Uri "http://localhost:8080/JSON/ascan/action/scan/?url=$Target" -UseBasicParsing -TimeoutSec 5
+                Write-Host "[OK] Active scan iniciado" -ForegroundColor Green
+                
+                # Aguardar scan completar
+                Write-Host "Aguardando conclusao do scan (pode levar alguns minutos)..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 30
+                
+            } catch {
+                Write-Host "[!] Erro ao executar scan via API, tentando metodo alternativo..." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Executando scan com zap-cli..." -ForegroundColor Yellow
+            Write-Host "[!] Nota: zap-cli requer OWASP ZAP instalado e rodando" -ForegroundColor Yellow
+            Write-Host ""
+            
+            # Quick scan (mais rápido) - requer ZAP rodando
+            & $zapCliPath quick-scan --self-contained --start-options '-config api.disablekey=true' $Target
+        }
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host ""
-            Write-Host "[ERRO] Erro: ZAP nao esta rodando ou nao foi encontrado" -ForegroundColor Red
+            Write-Host "[!] ZAP daemon nao esta rodando - usando scan simplificado" -ForegroundColor Yellow
             Write-Host ""
-            Write-Host "Soluções:" -ForegroundColor Yellow
-            Write-Host "1. Baixe e inicie OWASP ZAP Desktop: https://www.zaproxy.org/download/" -ForegroundColor Cyan
-            Write-Host "2. Ou use Docker: docker run -d -p 8080:8080 owasp/zap2docker-stable zap.sh -daemon" -ForegroundColor Cyan
-            Write-FallbackReport -Reason "ZAP daemon not available. Start ZAP Desktop or set ZAP_PATH."
-            exit 0
+            
+            # Executar scan simplificado automaticamente
+            $simpleScanPath = Join-Path $PSScriptRoot "zap-scan-simple.ps1"
+            if (Test-Path $simpleScanPath) {
+                & $simpleScanPath -Target $Target -ReportPath $ReportPath
+                exit $LASTEXITCODE
+            } else {
+                Write-Host "[ERRO] Script de scan simplificado nao encontrado" -ForegroundColor Red
+                Write-FallbackReport -Reason "ZAP daemon not running. Fallback to simplified scan failed."
+                exit 1
+            }
         }
         
         # Fazer backup do arquivo anterior se existir
@@ -341,7 +448,20 @@ if ($zapMethod -eq "zap-cli") {
         # Gera relatório HTML
         Write-Host ""
         Write-Host "Gerando relatório HTML..." -ForegroundColor Yellow
-        & $zapCliPath report -o $ReportPath -f html
+        
+        if ($zapMethod -eq "zap-running") {
+            # Gerar relatório via API
+            try {
+                $reportHtml = Invoke-WebRequest -Uri "http://localhost:8080/OTHER/core/other/htmlreport/" -UseBasicParsing -TimeoutSec 30
+                $reportHtml.Content | Out-File -FilePath $ReportPath -Encoding UTF8
+                Write-Host "[OK] Relatorio gerado via API" -ForegroundColor Green
+            } catch {
+                Write-Host "[!] Erro ao gerar relatorio via API: $_" -ForegroundColor Yellow
+                Write-Host "[INFO] Tente exportar manualmente do ZAP: Report > Generate HTML Report" -ForegroundColor Cyan
+            }
+        } else {
+            & $zapCliPath report -o $ReportPath -f html
+        }
         
         # Forçar atualização da data de modificação
         if (Test-Path $ReportPath) {
@@ -355,20 +475,17 @@ if ($zapMethod -eq "zap-cli") {
     } catch {
         Write-Host "[ERRO] Erro ao executar scan: $_" -ForegroundColor Red
         Write-Host ""
-        Write-Host "[INFO] Certifique-se de que OWASP ZAP esta instalado e rodando" -ForegroundColor Yellow
+        Write-Host "[INFO] Certifique-se de que OWASP ZAP esta rodando" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Executando scan simplificado como alternativa..." -ForegroundColor Cyan
+        
+        # Fallback para scan simplificado
+        $simpleScanPath = Join-Path $PSScriptRoot "zap-scan-simple.ps1"
+        if (Test-Path $simpleScanPath) {
+            & $simpleScanPath -Target $Target -ReportPath $ReportPath
+        }
         exit 1
     }
-} elseif ($zapMethod -eq "zap-api") {
-    # Usa API REST do ZAP
-    Write-Host "Usando ZAP API..." -ForegroundColor Yellow
-    Write-Host "[!] Scan via API requer ZAP ja iniciado" -ForegroundColor Yellow
-    Write-Host "   Inicie ZAP Desktop ou ZAP daemon primeiro" -ForegroundColor Yellow
-    
-    # Aqui poderia implementar chamadas à API REST do ZAP
-    # Mas é mais complexo, então vamos sugerir zap-cli
-    Write-Host ""
-    Write-Host "[INFO] Recomendacao: Use zap-cli para automacao" -ForegroundColor Cyan
-    Write-Host "   python -m pip install --user zapcli" -ForegroundColor Gray
 }
 
 Write-Host ""

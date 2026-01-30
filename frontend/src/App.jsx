@@ -23,8 +23,8 @@ function AppRoutes() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-green-500 font-mono">LOADING SYSTEM...</div>
       </div>
     )
   }
@@ -75,20 +75,21 @@ function App() {
             position="top-right"
             toastOptions={{
               style: {
-                background: '#1e293b',
-                color: '#fff',
-                border: '1px solid #334155',
+                background: '#000',
+                color: '#10b981',
+                border: '2px solid #10b981',
+                fontFamily: 'monospace',
               },
               success: {
                 iconTheme: {
-                  primary: '#22c55e',
-                  secondary: '#fff',
+                  primary: '#10b981',
+                  secondary: '#000',
                 },
               },
               error: {
                 iconTheme: {
                   primary: '#ef4444',
-                  secondary: '#fff',
+                  secondary: '#000',
                 },
               },
             }}

@@ -14,8 +14,12 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-// Testa a conexão
-pool.on('connect', () => {
+// Testa a conexão e configura timezone
+pool.on('connect', (client) => {
+  // Configurar timezone para horário de Brasília
+  client.query("SET timezone = 'America/Sao_Paulo'").catch(err => {
+    console.error('⚠️ Erro ao configurar timezone:', err);
+  });
   console.log('✅ Conectado ao banco de dados PostgreSQL');
 });
 

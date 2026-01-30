@@ -6,7 +6,7 @@ exports.getSites = async (req, res) => {
     const userId = req.user.userId;
 
     const result = await query(
-      `SELECT id, url, name, status, last_scan, created_at, updated_at 
+      `SELECT id, url, name, status, last_scan, vulnerabilities, created_at, updated_at 
        FROM monitored_sites 
        WHERE user_id = $1 
        ORDER BY created_at DESC`,
@@ -55,7 +55,7 @@ exports.addSite = async (req, res) => {
     const result = await query(
       `INSERT INTO monitored_sites (url, name, user_id) 
        VALUES ($1, $2, $3) 
-       RETURNING id, url, name, status, last_scan, created_at, updated_at`,
+       RETURNING id, url, name, status, last_scan, vulnerabilities, created_at, updated_at`,
       [url, name || url, userId]
     );
 
@@ -111,7 +111,7 @@ exports.deleteSite = async (req, res) => {
 exports.updateSite = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, name } = req.body;
+    const { status, name, updateScan, vulnerabilities } = req.body;
     const userId = req.user.userId;
 
     // Verificar se o site pertence ao usuário
@@ -141,6 +141,16 @@ exports.updateSite = async (req, res) => {
       values.push(name);
     }
 
+    // Se updateScan for true, atualizar last_scan com timestamp atual do servidor
+    if (updateScan === true) {
+      updates.push(`last_scan = CURRENT_TIMESTAMP`);
+    }
+
+    if (vulnerabilities !== undefined) {
+      updates.push(`vulnerabilities = $${paramCount++}`);
+      values.push(vulnerabilities);
+    }
+
     if (updates.length === 0) {
       return res.status(400).json({
         error: 'Validation error',
@@ -155,7 +165,7 @@ exports.updateSite = async (req, res) => {
       `UPDATE monitored_sites 
        SET ${updates.join(', ')} 
        WHERE id = $${paramCount} 
-       RETURNING id, url, name, status, last_scan, created_at, updated_at`,
+       RETURNING id, url, name, status, last_scan, vulnerabilities, created_at, updated_at`,
       values
     );
 

@@ -59,10 +59,20 @@ CREATE TABLE IF NOT EXISTS monitored_sites (
     name VARCHAR(255),
     status VARCHAR(50) DEFAULT 'active',
     last_scan TIMESTAMP,
+    vulnerabilities INTEGER DEFAULT 0,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Adicionar coluna vulnerabilities se não existir
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='monitored_sites' AND column_name='vulnerabilities') THEN
+        ALTER TABLE monitored_sites ADD COLUMN vulnerabilities INTEGER DEFAULT 0;
+    END IF;
+END $$;
 
 -- Índices para sites monitorados
 CREATE INDEX IF NOT EXISTS idx_monitored_sites_user_id ON monitored_sites(user_id);

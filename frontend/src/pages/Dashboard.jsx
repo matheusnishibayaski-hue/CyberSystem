@@ -1,654 +1,420 @@
-import { useEffect, useState, useRef } from "react"
-import { useNavigate } from "react-router-dom"
-import { motion } from "framer-motion"
-import { Globe, Scan, AlertTriangle, Activity, RefreshCw, Shield, Zap, FileText, Loader2, ExternalLink } from "lucide-react"
-import Sidebar from "@/components/cyber/Sidebar"
-import StatsCard from "@/components/cyber/StatsCard"
-import AlertsChart from "@/components/cyber/AlertsChart"
-import { Button } from "@/components/ui/button"
-import { Modal } from "@/components/ui/modal"
-import { SemgrepReportViewer, ZapReportViewer, SecurityGateReportViewer } from "@/components/cyber/ReportViewer"
-import { useAuth } from "@/lib/AuthContext"
-import { useQuery } from "@tanstack/react-query"
-import apiClient from "@/api/client"
-import toast from "react-hot-toast"
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { Globe, Scan, AlertTriangle, Activity, Shield, Zap, FileText } from "lucide-react";
+import HackerNavbar from "@/components/hacker/HackerNavbar";
+import HackerCard from "@/components/hacker/HackerCard";
+import TerminalBackground from "@/components/hacker/TerminalBackground";
+import { Modal } from "@/components/ui/modal";
+import { SemgrepReportViewer, ZapReportViewer, SecurityGateReportViewer } from "@/components/cyber/ReportViewer";
+import { useAuth } from "@/lib/AuthContext";
+import { useQuery } from "@tanstack/react-query";
+import apiClient from "@/api/client";
+import toast from "react-hot-toast";
 
 export default function Dashboard() {
-  const navigate = useNavigate()
-  const { user, isLoading: authLoading } = useAuth()
+  const navigate = useNavigate();
+  const { user, isLoading: authLoading } = useAuth();
 
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate("/login")
+      navigate("/login");
     }
-  }, [user, authLoading, navigate])
+  }, [user, authLoading, navigate]);
 
-  // Buscar estatísticas reais da API com polling automático
+  // Buscar estatísticas
   const { data: statsData, isLoading: loadingStats, refetch: refetchStats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      const response = await apiClient.get('/api/protected/dashboard/stats')
-      return response.data.stats || { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 }
+      const response = await apiClient.get('/api/protected/dashboard/stats');
+      return response.data.stats || { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 };
     },
     enabled: !!user,
-    initialData: { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 },
-    refetchInterval: 30000, // Atualizar a cada 30 segundos
-    refetchIntervalInBackground: false,
-    staleTime: 10000,
-    cacheTime: 60000
-  })
+    initialData: { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 }
+  });
 
-  const stats = statsData || { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 }
+  const stats = statsData || { sites: 0, scans: 0, vulnerabilities: 0, alerts: 0 };
 
-  // Buscar atividade recente com polling automático
-  const { data: activitiesData, refetch: refetchActivity } = useQuery({
-    queryKey: ['dashboard-activity'],
+  // Buscar sites para fazer scan
+  const { data: sitesData, refetch: refetchSites } = useQuery({
+    queryKey: ['sites'],
     queryFn: async () => {
-      const response = await apiClient.get('/api/protected/dashboard/activity?limit=3')
-      return response.data.activities || []
+      const response = await apiClient.get('/api/protected/sites');
+      return response.data.sites || [];
     },
     enabled: !!user,
-    refetchInterval: 30000, // Atualizar a cada 30 segundos
-    refetchIntervalInBackground: false,
-    staleTime: 10000,
-    cacheTime: 60000
-  })
+    initialData: []
+  });
 
-  const activities = activitiesData || []
-
-  // Buscar dados do gráfico de alertas
-  const { data: chartData } = useQuery({
-    queryKey: ['dashboard-alerts-chart'],
-    queryFn: async () => {
-      const response = await apiClient.get('/api/protected/dashboard/alerts-chart')
-      return response.data.data || []
-    },
-    enabled: !!user
-  })
+  const sites = sitesData || [];
 
   // Estados para os scans
-  const [isRunningSecurityScan, setIsRunningSecurityScan] = useState(false)
-  const [isRunningZapScan, setIsRunningZapScan] = useState(false)
-  const [isRunningZapFullScan, setIsRunningZapFullScan] = useState(false)
+  const [isRunningSecurityScan, setIsRunningSecurityScan] = useState(false);
+  const [isRunningZapScan, setIsRunningZapScan] = useState(false);
+  const [isRunningZapFullScan, setIsRunningZapFullScan] = useState(false);
   
-  // Ref para armazenar intervalos de polling
-  const pollingIntervalsRef = useRef([])
-
   // Estados para o modal de relatórios
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [modalTitle, setModalTitle] = useState("")
-  const [reportData, setReportData] = useState(null)
-  const [reportType, setReportType] = useState(null)
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [reportData, setReportData] = useState(null);
+  const [reportType, setReportType] = useState(null);
 
-  // Estado para rastrear timestamps dos relatórios (para detectar novos)
-  const [lastReportTimestamps, setLastReportTimestamps] = useState({})
-
-  // Buscar relatórios disponíveis com polling automático
-  const { data: reportsData, refetch: refetchReports, isFetching: isFetchingReports } = useQuery({
+  // Buscar relatórios disponíveis
+  const { data: reportsData } = useQuery({
     queryKey: ['scan-reports'],
     queryFn: async () => {
       try {
-        const response = await apiClient.get('/api/protected/scans/reports', {
-          // Adicionar timestamp para evitar cache
-          params: { _t: Date.now() }
-        })
-        return response.data.reports || []
+        const response = await apiClient.get('/api/protected/scans/reports');
+        return response.data.reports || [];
       } catch (error) {
-        // Silenciar erros esperados (arquivos não encontrados são normais)
-        if (error.response?.status === 404 || error.response?.status === 500) {
-          // Retornar array vazio em caso de erro, não propagar
-          return []
-        }
-        throw error
+        return [];
       }
     },
     enabled: !!user,
-    refetchInterval: 30000, // Verificar a cada 30 segundos (reduzido para evitar spam)
-    refetchIntervalInBackground: false, // Não verificar quando a aba não está ativa
-    staleTime: 10000, // Dados válidos por 10 segundos
-    cacheTime: 60000, // Manter cache por 1 minuto
-    refetchOnMount: true, // Sempre buscar ao montar
-    refetchOnWindowFocus: true, // Buscar quando a janela recebe foco
-    retry: 1, // Tentar apenas 1 vez em caso de erro
-    retryDelay: 2000 // Aguardar 2 segundos entre tentativas
-  })
+    refetchInterval: 30000
+  });
 
-  const reports = reportsData || []
+  const reports = reportsData || [];
 
-  // Inicializar timestamps na primeira carga e detectar novos relatórios
-  useEffect(() => {
-    if (!reports || reports.length === 0) return
-
-    setLastReportTimestamps(prev => {
-      const currentTimestamps = { ...prev }
-      const newReports = []
-
-      reports.forEach((report) => {
-        if (report.exists && report.lastModified) {
-          const reportKey = report.type
-          const lastTimestamp = prev[reportKey]
-          const currentTimestamp = new Date(report.lastModified).getTime()
-
-          // Se já temos um timestamp anterior e o atual é mais recente, é um novo relatório
-          if (lastTimestamp && currentTimestamp > lastTimestamp) {
-            newReports.push(reportKey)
-          }
-
-          // Atualizar timestamp
-          currentTimestamps[reportKey] = currentTimestamp
-        }
-      })
-
-      // Mostrar notificações após atualizar o estado (evita setState durante render)
-      if (newReports.length > 0) {
-        setTimeout(() => {
-          const reportNames = {
-            'security': 'Semgrep Security Scan',
-            'zap': 'OWASP ZAP Scan Report',
-            'security-gate': 'Security Gate Summary'
-          }
-          
-          newReports.forEach(reportKey => {
-            toast.success(`📄 Novo relatório disponível: ${reportNames[reportKey] || 'Relatório'}`, {
-              duration: 5000
-            })
-          })
-        }, 0)
-      }
-
-      return currentTimestamps
-    })
-  }, [reports])
-
-  const handleRefresh = () => {
-    refetchStats()
-    refetchReports()
-    toast.success("Dados atualizados!")
-  }
-
-  // Limpar intervalos ao desmontar
-  useEffect(() => {
-    return () => {
-      pollingIntervalsRef.current.forEach(interval => clearInterval(interval))
-      pollingIntervalsRef.current.length = 0
-    }
-  }, [])
+  const handleLogout = () => {
+    localStorage.removeItem("auth_token");
+    navigate("/login");
+  };
 
   // Executar scan de segurança (Semgrep)
   const handleRunSecurityScan = async () => {
-    setIsRunningSecurityScan(true)
-    try {
-      const response = await apiClient.post('/api/protected/scans/security')
-      toast.success(response.data.message || 'Scan de segurança iniciado!')
-      
-      // Polling moderado após iniciar o scan (não criar intervalo manual, usar refetch do useQuery)
-      // Apenas forçar refetch algumas vezes após iniciar o scan
-      let pollCount = 0
-      const maxPolls = 12 // 12 tentativas = 6 minutos (30s cada)
-      const pollInterval = setInterval(() => {
-        pollCount++
-        try {
-          refetchReports().catch(() => {}) // Silenciar erros de refetch
-          refetchStats().catch(() => {}) // Silenciar erros de refetch
-          refetchActivity().catch(() => {}) // Atualizar atividade também
-        } catch (err) {
-          // Ignorar erros silenciosamente
-        }
-        
-        // Parar polling após maxPolls
-        if (pollCount >= maxPolls) {
-          clearInterval(pollInterval)
-          const index = pollingIntervalsRef.current.indexOf(pollInterval)
-          if (index > -1) pollingIntervalsRef.current.splice(index, 1)
-        }
-      }, 30000) // Poll a cada 30 segundos (reduzido)
-      
-      pollingIntervalsRef.current.push(pollInterval)
-      
-      // Limpar intervalo após 6 minutos
-      setTimeout(() => {
-        clearInterval(pollInterval)
-        const index = pollingIntervalsRef.current.indexOf(pollInterval)
-        if (index > -1) pollingIntervalsRef.current.splice(index, 1)
-      }, 360000) // 6 minutos máximo
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Erro ao iniciar scan de segurança')
-      console.error('Erro ao iniciar scan:', error)
-    } finally {
-      setIsRunningSecurityScan(false)
+    if (sites.length === 0) {
+      toast.error('Nenhum site cadastrado para escanear');
+      return;
     }
-  }
+
+    setIsRunningSecurityScan(true);
+    try {
+      // Executar scan geral no código
+      const response = await apiClient.post('/api/protected/scans/security');
+      
+      // Atualizar last_scan de todos os sites (backend irá usar CURRENT_TIMESTAMP)
+      const updatePromises = sites.map(site => 
+        apiClient.put(`/api/protected/sites/${site.id}`, {
+          updateScan: true
+        }).catch(err => console.error(`Erro ao atualizar site ${site.url}:`, err))
+      );
+      
+      await Promise.all(updatePromises);
+      
+      toast.success(`Scan de segurança executado em ${sites.length} site(s)!`);
+      refetchStats();
+      refetchSites();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Erro ao iniciar scan de segurança');
+    } finally {
+      setIsRunningSecurityScan(false);
+    }
+  };
 
   // Executar scan ZAP simplificado
   const handleRunZapScan = async () => {
-    setIsRunningZapScan(true)
-    try {
-      const response = await apiClient.post('/api/protected/scans/zap', { scanType: 'simple' })
-      toast.success(response.data.message || 'Scan ZAP iniciado!')
-      
-      // Polling moderado após iniciar o scan
-      let pollCount = 0
-      const maxPolls = 12 // 12 tentativas = 6 minutos (30s cada)
-      const pollInterval = setInterval(() => {
-        pollCount++
-        try {
-          refetchReports().catch(() => {}) // Silenciar erros de refetch
-          refetchStats().catch(() => {}) // Silenciar erros de refetch
-          refetchActivity().catch(() => {}) // Atualizar atividade também
-        } catch (err) {
-          // Ignorar erros silenciosamente
-        }
-        
-        if (pollCount >= maxPolls) {
-          clearInterval(pollInterval)
-          const index = pollingIntervalsRef.current.indexOf(pollInterval)
-          if (index > -1) pollingIntervalsRef.current.splice(index, 1)
-        }
-      }, 30000) // Poll a cada 30 segundos
-      
-      pollingIntervalsRef.current.push(pollInterval)
-      
-      setTimeout(() => {
-        clearInterval(pollInterval)
-        const index = pollingIntervalsRef.current.indexOf(pollInterval)
-        if (index > -1) pollingIntervalsRef.current.splice(index, 1)
-      }, 360000) // 6 minutos máximo
-    } catch (error) {
-      // Apenas mostrar toast, não logar no console (evitar spam)
-      toast.error(error.response?.data?.message || 'Erro ao iniciar scan ZAP')
-    } finally {
-      setIsRunningZapScan(false)
+    if (sites.length === 0) {
+      toast.error('Nenhum site cadastrado para escanear');
+      return;
     }
-  }
+
+    setIsRunningZapScan(true);
+    let scannedCount = 0;
+    
+    try {
+      // Escanear cada site individualmente
+      for (const site of sites) {
+        try {
+          await apiClient.post('/api/protected/scans/zap', { 
+            scanType: 'simple',
+            target: site.url
+          });
+          
+          // Atualizar last_scan do site (backend irá usar CURRENT_TIMESTAMP)
+          await apiClient.put(`/api/protected/sites/${site.id}`, {
+            updateScan: true
+          });
+          
+          scannedCount++;
+          toast.success(`Scan ZAP: ${scannedCount}/${sites.length} - ${site.url}`);
+        } catch (error) {
+          console.error(`Erro ao escanear ${site.url}:`, error);
+          toast.error(`Erro ao escanear ${site.url}`);
+        }
+      }
+      
+      toast.success(`✓ Scan ZAP completo! ${scannedCount} site(s) escaneado(s)`);
+      refetchStats();
+      refetchSites();
+    } catch (error) {
+      toast.error('Erro ao executar scans ZAP');
+    } finally {
+      setIsRunningZapScan(false);
+    }
+  };
 
   // Executar scan ZAP completo
   const handleRunZapFullScan = async () => {
-    setIsRunningZapFullScan(true)
-    try {
-      const response = await apiClient.post('/api/protected/scans/zap', { scanType: 'full' })
-      toast.success(response.data.message || 'Scan ZAP completo iniciado!')
-      
-      // Polling moderado após iniciar o scan (ZAP completo pode demorar mais)
-      let pollCount = 0
-      const maxPolls = 20 // 20 tentativas = 10 minutos (30s cada)
-      const pollInterval = setInterval(() => {
-        pollCount++
-        try {
-          refetchReports().catch(() => {}) // Silenciar erros de refetch
-          refetchStats().catch(() => {}) // Silenciar erros de refetch
-          refetchActivity().catch(() => {}) // Atualizar atividade também
-        } catch (err) {
-          // Ignorar erros silenciosamente
-        }
-        
-        if (pollCount >= maxPolls) {
-          clearInterval(pollInterval)
-          const index = pollingIntervalsRef.current.indexOf(pollInterval)
-          if (index > -1) pollingIntervalsRef.current.splice(index, 1)
-        }
-      }, 30000) // Poll a cada 30 segundos
-      
-      pollingIntervalsRef.current.push(pollInterval)
-      
-      setTimeout(() => {
-        clearInterval(pollInterval)
-        const index = pollingIntervalsRef.current.indexOf(pollInterval)
-        if (index > -1) pollingIntervalsRef.current.splice(index, 1)
-      }, 600000) // 10 minutos máximo
-    } catch (error) {
-      // Apenas mostrar toast, não logar no console (evitar spam)
-      toast.error(error.response?.data?.message || 'Erro ao iniciar scan ZAP completo')
-    } finally {
-      setIsRunningZapFullScan(false)
+    if (sites.length === 0) {
+      toast.error('Nenhum site cadastrado para escanear');
+      return;
     }
-  }
 
-  // Abrir/visualizar relatório no modal
+    setIsRunningZapFullScan(true);
+    let scannedCount = 0;
+    
+    try {
+      // Escanear cada site individualmente
+      for (const site of sites) {
+        try {
+          await apiClient.post('/api/protected/scans/zap', { 
+            scanType: 'full',
+            target: site.url
+          });
+          
+          // Atualizar last_scan do site (backend irá usar CURRENT_TIMESTAMP)
+          await apiClient.put(`/api/protected/sites/${site.id}`, {
+            updateScan: true
+          });
+          
+          scannedCount++;
+          toast.success(`Scan ZAP Full: ${scannedCount}/${sites.length} - ${site.url}`);
+        } catch (error) {
+          console.error(`Erro ao escanear ${site.url}:`, error);
+          toast.error(`Erro ao escanear ${site.url}`);
+        }
+      }
+      
+      toast.success(`✓ Scan ZAP Full completo! ${scannedCount} site(s) escaneado(s)`);
+      refetchStats();
+      refetchSites();
+    } catch (error) {
+      toast.error('Erro ao executar scans ZAP completos');
+    } finally {
+      setIsRunningZapFullScan(false);
+    }
+  };
+
+  // Abrir relatório
   const handleOpenReport = async (reportTypeParam) => {
     try {
-      setIsModalOpen(false) // Fechar modal anterior se estiver aberto
-      setReportData(null) // Limpar dados anteriores
-      setReportType(null) // Limpar tipo anterior
+      setIsModalOpen(false);
+      setReportData(null);
+      setReportType(null);
       
       // Determinar título do modal
       const titles = {
-        'security': 'Relatório Semgrep Security Scan',
-        'zap': 'Relatório OWASP ZAP',
-        'security-gate': 'Security Gate Summary'
-      }
-      setModalTitle(titles[reportTypeParam] || 'Relatório')
+        'security': 'Relatório Semgrep - Análise de Código',
+        'zap': 'Relatório OWASP ZAP - Vulnerabilidades Web',
+        'security-gate': 'Security Gate - Resumo de Segurança'
+      };
+      setModalTitle(titles[reportTypeParam] || 'Relatório');
       
-      // Abrir modal primeiro para mostrar loading
-      setIsModalOpen(true)
+      // Abrir modal com loading
+      setIsModalOpen(true);
       
-      // Usar fetch direto para ter controle total sobre o responseType
-      const token = localStorage.getItem('auth_token')
-      const baseURL = apiClient.defaults.baseURL || 'http://localhost:3000'
-      const url = `${baseURL}/api/protected/scans/reports/${reportTypeParam}`
+      const token = localStorage.getItem('auth_token');
+      const baseURL = apiClient.defaults.baseURL || 'http://localhost:3000';
       
-      const response = await fetch(url, {
+      const response = await fetch(`${baseURL}/api/protected/scans/reports/${reportTypeParam}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
-      })
-      
+      });
+
       if (!response.ok) {
-        // Se for 404, arquivo não existe (é esperado, não mostrar erro)
         if (response.status === 404) {
-          toast.error('Relatório ainda não foi gerado')
-          setIsModalOpen(false)
-          return
+          toast.error('Relatório ainda não foi gerado');
+          setIsModalOpen(false);
+          return;
         }
-        const errorData = await response.json().catch(() => ({ message: 'Erro ao carregar relatório' }))
-        throw new Error(errorData.message || `Erro ${response.status}: ${response.statusText}`)
+        throw new Error('Erro ao carregar relatório');
       }
 
-      if (reportTypeParam === 'zap') {
-        // Para HTML, obter como texto
-        const htmlContent = await response.text()
-        if (!htmlContent || htmlContent.trim().length === 0) {
-          throw new Error('Relatório HTML está vazio')
-        }
-        setReportData(htmlContent)
-        setReportType('zap')
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('text/html')) {
+        // Para relatórios HTML (ZAP)
+        const htmlContent = await response.text();
+        setReportData(htmlContent);
+        setReportType('zap');
       } else {
-        // Para JSON, obter como texto primeiro para validar
-        const textContent = await response.text()
-        
-        if (!textContent || textContent.trim().length === 0) {
-          throw new Error('Relatório JSON está vazio')
-        }
-        
-        // Tentar parsear o JSON
-        let jsonData
-        try {
-          jsonData = JSON.parse(textContent)
-        } catch (parseError) {
-          console.error('Erro ao parsear JSON:', parseError)
-          console.error('Conteúdo recebido:', textContent.substring(0, 200))
-          throw new Error('Relatório JSON inválido ou corrompido')
-        }
-        
-        setReportData(jsonData)
-        setReportType(reportTypeParam)
+        // Para relatórios JSON
+        const jsonData = await response.json();
+        setReportData(jsonData);
+        setReportType(reportTypeParam);
       }
+      
     } catch (error) {
-      // Apenas mostrar toast, não logar no console (evitar spam)
-      const errorMessage = error.message || 'Erro ao carregar relatório'
-      toast.error(errorMessage)
-      setIsModalOpen(false) // Fechar modal em caso de erro
-      setReportData(null)
-      setReportType(null)
+      console.error('Erro ao abrir relatório:', error);
+      toast.error('Erro ao abrir relatório: ' + error.message);
+      setIsModalOpen(false);
+      setReportData(null);
+      setReportType(null);
     }
-  }
+  };
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-green-500 font-mono">LOADING...</div>
       </div>
-    )
+    );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      <Sidebar />
+    <div className="min-h-screen bg-black relative font-mono">
+      <TerminalBackground />
+      <HackerNavbar currentPage="Dashboard" onLogout={handleLogout} />
       
-      <main className="ml-64 p-8">
+      <main className="pt-20 px-6 pb-8 relative z-10">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between mb-8"
+          className="mb-8"
         >
-          <div>
-            <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-            <p className="text-gray-500 mt-1">Visão geral do sistema de segurança</p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={handleRefresh}
-            className="bg-slate-800/50 border-slate-700 text-gray-300 hover:bg-slate-700 hover:text-white"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Atualizar
-          </Button>
+          <div className="text-green-500 text-sm mb-2">root@cybersystem:~# ./dashboard</div>
+          <h1 className="text-3xl font-bold text-green-500 mb-1">SYSTEM DASHBOARD</h1>
+          <p className="text-green-700 text-sm">[ REAL-TIME MONITORING ACTIVE ]</p>
         </motion.div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatsCard
-            title="Sites Monitorados"
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <HackerCard
+            title="MONITORED_SITES"
             value={loadingStats ? "..." : stats.sites}
             icon={Globe}
-            color="blue"
+            subtitle="ACTIVE TARGETS"
           />
-          <StatsCard
-            title="Scans Executados"
+          <HackerCard
+            title="SCANS_EXECUTED"
             value={loadingStats ? "..." : stats.scans}
             icon={Scan}
-            color="green"
+            subtitle="TOTAL OPERATIONS"
           />
-          <StatsCard
-            title="Vulnerabilidades Críticas"
+          <HackerCard
+            title="CRITICAL_VULNS"
             value={loadingStats ? "..." : stats.vulnerabilities}
             icon={AlertTriangle}
-            color="red"
+            subtitle="HIGH PRIORITY"
           />
-          <StatsCard
-            title="Alertas Hoje"
+          <HackerCard
+            title="ALERTS_TODAY"
             value={loadingStats ? "..." : stats.alerts}
             icon={Activity}
-            color="cyan"
+            subtitle="SYSTEM EVENTS"
           />
         </div>
 
-        {/* Ações Rápidas */}
+        {/* Scan Actions */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-8 bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-2xl p-6 backdrop-blur-xl"
+          className="bg-black border-2 border-green-500 p-6 mb-8"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-white">🔒 Ações de Segurança</h3>
-              <p className="text-gray-400 text-sm mt-1">Execute scans de segurança com um clique</p>
-            </div>
+          <div className="flex items-center gap-2 mb-4 text-green-500">
+            <Shield className="w-4 h-4" />
+            <span className="text-sm font-bold">SECURITY_SCANS</span>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            {/* Botão Scan Semgrep */}
-            <Button
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Scan Semgrep */}
+            <button
               onClick={handleRunSecurityScan}
               disabled={isRunningSecurityScan}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white border-0 h-auto py-4 px-6 flex flex-col items-center gap-2"
+              className="border-2 border-green-500 bg-green-500/10 hover:bg-green-500/20 text-green-400 p-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isRunningSecurityScan ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Shield className="w-5 h-5" />
-              )}
-              <span className="font-semibold">
-                {isRunningSecurityScan ? 'Executando...' : 'Scan Semgrep'}
-              </span>
-              <span className="text-xs opacity-90">Análise estática de código</span>
-            </Button>
+              <Shield className="w-6 h-6 mx-auto mb-2" />
+              <div className="font-bold text-sm mb-1">
+                {isRunningSecurityScan ? '[ EXECUTING... ]' : '[ SEMGREP SCAN ]'}
+              </div>
+              <div className="text-xs text-green-700">Static code analysis</div>
+            </button>
 
-            {/* Botão Scan ZAP Simples */}
-            <Button
+            {/* Scan ZAP Simples */}
+            <button
               onClick={handleRunZapScan}
               disabled={isRunningZapScan}
-              className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white border-0 h-auto py-4 px-6 flex flex-col items-center gap-2"
+              className="border-2 border-green-500 bg-green-500/10 hover:bg-green-500/20 text-green-400 p-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isRunningZapScan ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Zap className="w-5 h-5" />
-              )}
-              <span className="font-semibold">
-                {isRunningZapScan ? 'Executando...' : 'Scan ZAP Simples'}
-              </span>
-              <span className="text-xs opacity-90">Testes básicos de segurança</span>
-            </Button>
+              <Zap className="w-6 h-6 mx-auto mb-2" />
+              <div className="font-bold text-sm mb-1">
+                {isRunningZapScan ? '[ EXECUTING... ]' : '[ ZAP SIMPLE ]'}
+              </div>
+              <div className="text-xs text-green-700">Basic security tests</div>
+            </button>
 
-            {/* Botão Scan ZAP Completo */}
-            <Button
+            {/* Scan ZAP Completo */}
+            <button
               onClick={handleRunZapFullScan}
               disabled={isRunningZapFullScan}
-              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white border-0 h-auto py-4 px-6 flex flex-col items-center gap-2"
+              className="border-2 border-green-500 bg-green-500/10 hover:bg-green-500/20 text-green-400 p-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isRunningZapFullScan ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Scan className="w-5 h-5" />
-              )}
-              <span className="font-semibold">
-                {isRunningZapFullScan ? 'Executando...' : 'Scan ZAP Completo'}
-              </span>
-              <span className="text-xs opacity-90">Análise completa OWASP ZAP</span>
-            </Button>
+              <Scan className="w-6 h-6 mx-auto mb-2" />
+              <div className="font-bold text-sm mb-1">
+                {isRunningZapFullScan ? '[ EXECUTING... ]' : '[ ZAP FULL ]'}
+              </div>
+              <div className="text-xs text-green-700">Complete OWASP analysis</div>
+            </button>
           </div>
-
-          {/* Relatórios Disponíveis */}
-          {reports.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-slate-700/50">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Relatórios Disponíveis
-                  {isFetchingReports && (
-                    <span className="text-xs text-gray-400 ml-2 flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Atualizando...
-                    </span>
-                  )}
-                </h4>
-                <Button
-                  onClick={() => {
-                    refetchReports()
-                    toast.success('Relatórios atualizados!')
-                  }}
-                  variant="ghost"
-                  size="sm"
-                  className="text-gray-400 hover:text-white"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {reports.map((report) => (
-                  <div
-                    key={`${report.type}-${report.lastModified || 'none'}`}
-                    onClick={() => report.exists && handleOpenReport(report.type)}
-                    className={`p-3 rounded-lg border transition-all group ${
-                      report.exists
-                        ? 'bg-slate-800/30 border-green-500/30 cursor-pointer hover:bg-slate-800/50 hover:border-green-500/50 hover:shadow-lg hover:shadow-green-500/10'
-                        : 'bg-slate-800/10 border-slate-700/30 opacity-50 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-white">{report.name}</p>
-                        {report.exists && report.lastModified && (
-                          <p className="text-xs text-gray-400 mt-1">
-                            {new Date(report.lastModified).toLocaleString('pt-BR', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            })}
-                          </p>
-                        )}
-                        {!report.exists && (
-                          <p className="text-xs text-gray-500 mt-1">Não disponível</p>
-                        )}
-                      </div>
-                      {report.exists && (
-                        <div className="flex items-center gap-2 ml-2">
-                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                          <ExternalLink className="w-3 h-3 text-green-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </motion.div>
 
-        {/* Chart */}
-        <AlertsChart data={chartData} />
+        {/* Reports Section */}
+        {reports.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-black border-2 border-green-500 p-6 mb-8"
+          >
+            <div className="flex items-center gap-2 mb-4 text-green-500">
+              <FileText className="w-4 h-4" />
+              <span className="text-sm font-bold">AVAILABLE_REPORTS</span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {reports.map((report) => (
+                <button
+                  key={report.type}
+                  onClick={() => report.exists && handleOpenReport(report.type)}
+                  disabled={!report.exists}
+                  className={`border-2 p-4 transition-all text-left ${
+                    report.exists
+                      ? 'border-green-500 bg-green-500/10 hover:bg-green-500/20 text-green-400 cursor-pointer'
+                      : 'border-green-900 bg-green-900/5 text-green-700 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="font-bold text-sm mb-2">{report.name}</div>
+                  {report.exists && report.lastModified && (
+                    <div className="text-xs text-green-700">
+                      {new Date(report.lastModified).toLocaleString('pt-BR')}
+                    </div>
+                  )}
+                  {!report.exists && (
+                    <div className="text-xs text-green-900">NOT AVAILABLE</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
-        {/* Recent Activity */}
+        {/* Terminal Activity Log */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="mt-8 bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-2xl p-6 backdrop-blur-xl"
+          className="bg-black border-2 border-green-500 p-6"
         >
-          <h3 className="text-lg font-semibold text-white mb-4">Atividade Recente</h3>
-          <div className="space-y-4">
-            {activities.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">Nenhuma atividade recente</p>
-            ) : (
-              activities.map((activity, index) => {
-                const getIcon = () => {
-                  switch (activity.log_type) {
-                    case 'scan': return Scan
-                    case 'security': return AlertTriangle
-                    default: return Globe
-                  }
-                }
-                const getColor = () => {
-                  switch (activity.severity) {
-                    case 'error':
-                    case 'critical': return 'text-red-400'
-                    case 'warning': return 'text-yellow-400'
-                    case 'success': return 'text-green-400'
-                    default: return 'text-blue-400'
-                  }
-                }
-                const formatTime = (dateString) => {
-                  if (!dateString) return 'N/A'
-                  const date = new Date(dateString)
-                  const now = new Date()
-                  const diffMs = now - date
-                  const diffMins = Math.floor(diffMs / 60000)
-                  if (diffMins < 1) return 'Agora'
-                  if (diffMins < 60) return `${diffMins} min atrás`
-                  const diffHours = Math.floor(diffMins / 60)
-                  if (diffHours < 24) return `${diffHours} hora${diffHours > 1 ? 's' : ''} atrás`
-                  const diffDays = Math.floor(diffHours / 24)
-                  return `${diffDays} dia${diffDays > 1 ? 's' : ''} atrás`
-                }
-                const Icon = getIcon()
-                const color = getColor()
-                return (
-                  <motion.div
-                    key={activity.id || index}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.4 + index * 0.1 }}
-                    className="flex items-center gap-4 p-3 rounded-xl bg-slate-800/30 border border-slate-700/30"
-                  >
-                    <div className={`p-2 rounded-lg bg-slate-800 ${color}`}>
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-gray-300 text-sm">{activity.message}</p>
-                      {activity.site_url && (
-                        <p className="text-gray-500 text-xs mt-1">{activity.site_url}</p>
-                      )}
-                    </div>
-                    <span className="text-gray-500 text-xs">{formatTime(activity.created_at)}</span>
-                  </motion.div>
-                )
-              })
-            )}
+          <div className="flex items-center gap-2 mb-4 text-green-500">
+            <div className="w-2 h-2 bg-green-500 animate-pulse" />
+            <span className="text-sm font-bold">ACTIVITY_LOG</span>
+          </div>
+          <div className="space-y-2 font-mono text-sm">
+            <div className="text-green-400">[INFO] Sistema inicializado com sucesso</div>
+            <div className="text-green-400">[SCAN] Monitoramento de sites ativo</div>
+            <div className="text-yellow-500">[WARN] Aguardando execução de scans de segurança</div>
+            <div className="text-green-400">[INFO] Dashboard pronto para operação</div>
           </div>
         </motion.div>
       </main>
@@ -657,9 +423,9 @@ export default function Dashboard() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => {
-          setIsModalOpen(false)
-          setReportData(null)
-          setReportType(null)
+          setIsModalOpen(false);
+          setReportData(null);
+          setReportType(null);
         }}
         title={modalTitle}
         size="xl"
@@ -667,7 +433,10 @@ export default function Dashboard() {
         {reportType === 'security' && <SemgrepReportViewer data={reportData} />}
         {reportType === 'zap' && <ZapReportViewer htmlContent={reportData} />}
         {reportType === 'security-gate' && <SecurityGateReportViewer data={reportData} />}
+        {!reportType && reportData === null && (
+          <div className="text-green-400 text-center p-8">Carregando relatório...</div>
+        )}
       </Modal>
     </div>
-  )
+  );
 }

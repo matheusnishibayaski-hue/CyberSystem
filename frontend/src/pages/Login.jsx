@@ -1,210 +1,220 @@
-import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
-import { motion, AnimatePresence } from "framer-motion"
-import { Shield, User, Lock, Eye, EyeOff, AlertCircle, ArrowRight, Loader2 } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { useAuth } from "@/lib/AuthContext"
-import toast from "react-hot-toast"
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { Terminal } from "lucide-react";
+import TerminalBackground from "@/components/hacker/TerminalBackground";
+import MatrixIntro from "@/components/hacker/MatrixIntro";
+import { useAuth } from "@/lib/AuthContext";
+import toast from "react-hot-toast";
 
 export default function Login() {
-  const navigate = useNavigate()
-  const { login, user } = useAuth()
-  const [formData, setFormData] = useState({ email: "", password: "" })
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [loginSuccess, setLoginSuccess] = useState(false)
+  const navigate = useNavigate();
+  const { login, user } = useAuth();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [bootSequence, setBootSequence] = useState([]);
+  const [showLogin, setShowLogin] = useState(false);
+  const [currentField, setCurrentField] = useState("username");
+  const [showIntro, setShowIntro] = useState(true);
 
-  // Navegar para o dashboard quando o usuário for definido após login bem-sucedido
   useEffect(() => {
-    console.log('🔍 useEffect - Verificando navegação:', { loginSuccess, user, hasUser: !!user })
-    if (loginSuccess) {
-      // Verificar se há token no localStorage (confirmação de login bem-sucedido)
-      const token = localStorage.getItem('auth_token')
-      const storedUser = localStorage.getItem('auth_user')
-      
-      if (token && storedUser) {
-        console.log('🚀 Token encontrado no localStorage, navegando para /dashboard...')
-        // Pequeno delay para garantir que tudo está sincronizado
-        setTimeout(() => {
-          navigate("/dashboard", { replace: true })
-        }, 50)
-      } else if (user) {
-        console.log('🚀 Usuário no estado, navegando para /dashboard...')
-        navigate("/dashboard", { replace: true })
-      }
-    }
-  }, [user, loginSuccess, navigate])
+    const sequence = [
+      "INITIALIZING CYBERSYSTEM v3.7.9...",
+      "LOADING KERNEL MODULES............[OK]",
+      "STARTING NETWORK SERVICES.........[OK]",
+      "SYSTEM READY. AWAITING CREDENTIALS.",
+    ];
+
+    sequence.forEach((line, i) => {
+      setTimeout(() => {
+        setBootSequence(prev => [...prev, line]);
+        if (i === sequence.length - 1) {
+          setTimeout(() => setShowLogin(true), 500);
+        }
+      }, i * 400);
+    });
+  }, []);
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError("")
-    setIsLoading(true)
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    setBootSequence(prev => [...prev, `> AUTHENTICATING USER: ${username}`]);
+
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     try {
-      console.log('📝 Submetendo formulário de login...')
-      const result = await login(formData.email, formData.password)
-      console.log('📊 Resultado do login:', result)
+      const result = await login(username, password);
 
       if (result.success) {
-        console.log('✅ Login bem-sucedido!')
-        toast.success("Login realizado com sucesso!")
-        setIsLoading(false)
-        setLoginSuccess(true)
-        
-        // Se o resultado já tem o user, usar diretamente
-        if (result.user) {
-          console.log('👤 Usuário recebido no resultado, navegando imediatamente...')
-          setTimeout(() => {
-            navigate("/dashboard", { replace: true })
-          }, 100)
-        }
-        // Caso contrário, o useEffect cuidará da navegação quando o user for atualizado
+        setBootSequence(prev => [
+          ...prev,
+          "✓ AUTHENTICATION SUCCESSFUL",
+          "✓ LOADING USER PROFILE...",
+          "✓ ESTABLISHING SECURE SESSION...",
+          "> REDIRECTING TO DASHBOARD..."
+        ]);
+        toast.success("Login realizado com sucesso!");
+        setTimeout(() => {
+          navigate("/dashboard", { replace: true });
+        }, 1500);
       } else {
-        console.error('❌ Login falhou:', result.error)
-        setError(result.error || "Credenciais inválidas")
-        setIsLoading(false)
-        setLoginSuccess(false)
+        setError("ACCESS_DENIED");
+        setBootSequence(prev => [...prev, "! ACCESS DENIED: INVALID_CREDENTIALS"]);
+        setIsLoading(false);
       }
     } catch (error) {
-      console.error('❌ Erro no handleSubmit:', error)
-      setError("Erro inesperado ao fazer login")
-      setIsLoading(false)
-      setLoginSuccess(false)
+      setError("SYSTEM_ERROR");
+      setBootSequence(prev => [...prev, "! SYSTEM ERROR: CONNECTION_FAILED"]);
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated background */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl animate-pulse delay-1000" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-blue-500/5 to-cyan-500/5 rounded-full blur-3xl" />
-        
-        {/* Grid pattern */}
-        <div 
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-                             linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-            backgroundSize: '50px 50px'
-          }}
-        />
-      </div>
+    <div className="min-h-screen bg-black text-green-500 font-mono relative overflow-hidden">
+      <AnimatePresence mode="wait">
+        {showIntro ? (
+          <MatrixIntro onComplete={() => setShowIntro(false)} />
+        ) : (
+          <motion.div
+            key="login-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5 }}
+            className="relative min-h-screen"
+          >
+            <TerminalBackground />
 
-      <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="relative w-full max-w-md"
-      >
-        {/* Logo */}
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="text-center mb-8"
-        >
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 shadow-xl shadow-blue-500/25 mb-4">
-            <Shield className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            CyberSystem
-          </h1>
-          <p className="text-gray-500 mt-2">Faça login para continuar</p>
-        </motion.div>
-
-        {/* Login Card */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="bg-gradient-to-br from-slate-900/90 to-slate-800/50 backdrop-blur-xl rounded-3xl border border-slate-700/50 p-8 shadow-2xl"
-        >
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-400">Email</label>
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <Input
-                  type="email"
-                  placeholder="Digite seu email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-12 h-12 bg-slate-800/50 border-slate-700 text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500/20 rounded-xl"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-400">Senha</label>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Digite sua senha"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="pl-12 pr-12 h-12 bg-slate-800/50 border-slate-700 text-white placeholder:text-gray-500 focus:border-blue-500 focus:ring-blue-500/20 rounded-xl"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Error Message */}
-            <AnimatePresence>
-              {error && (
+            <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
+              <div className="w-full max-w-4xl">
+                {/* Terminal Container */}
                 <motion.div
-                  initial={{ opacity: 0, y: -10 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm"
+                  className="bg-black/90 border-2 border-green-500 rounded-lg overflow-hidden shadow-2xl shadow-green-500/20"
                 >
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {error}
+                  {/* Terminal Header */}
+                  <div className="bg-green-500/10 border-b border-green-500 px-4 py-2 flex items-center gap-2">
+                    <div className="flex gap-1.5">
+                      <div className="w-3 h-3 rounded-full bg-red-500" />
+                      <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                      <div className="w-3 h-3 rounded-full bg-green-500" />
+                    </div>
+                    <Terminal className="w-4 h-4 ml-2" />
+                    <span className="text-xs">root@cybersystem:~#</span>
+                  </div>
+
+                  {/* Terminal Content */}
+                  <div className="p-6 space-y-1 text-sm">
+                    {bootSequence.map((line, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        className={line.startsWith('!') ? 'text-red-500' : line.startsWith('✓') ? 'text-green-400' : ''}
+                      >
+                        {line}
+                      </motion.div>
+                    ))}
+
+                    <AnimatePresence>
+                      {showLogin && (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="mt-8 space-y-4"
+                        >
+                          <div className="text-green-400 mb-3 text-center">
+                            <p>[ SECURE AUTHENTICATION REQUIRED ]</p>
+                          </div>
+
+                          <form onSubmit={handleSubmit} className="space-y-4">
+                            {/* Username */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-500">USER@SYSTEM:~$</span>
+                              <input
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                onFocus={() => setCurrentField("username")}
+                                disabled={isLoading}
+                                placeholder="enter username..."
+                                className="flex-1 bg-transparent border-none outline-none text-green-400 placeholder:text-green-900"
+                                autoFocus
+                              />
+                              {currentField === "username" && (
+                                <motion.span
+                                  animate={{ opacity: [1, 0] }}
+                                  transition={{ duration: 0.8, repeat: Infinity }}
+                                  className="text-green-400"
+                                >
+                                  ▋
+                                </motion.span>
+                              )}
+                            </div>
+
+                            {/* Password */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-500">PASSWORD:~$</span>
+                              <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                onFocus={() => setCurrentField("password")}
+                                disabled={isLoading}
+                                placeholder="enter password..."
+                                className="flex-1 bg-transparent border-none outline-none text-green-400 placeholder:text-green-900"
+                              />
+                              {currentField === "password" && (
+                                <motion.span
+                                  animate={{ opacity: [1, 0] }}
+                                  transition={{ duration: 0.8, repeat: Infinity }}
+                                  className="text-green-400"
+                                >
+                                  ▋
+                                </motion.span>
+                              )}
+                            </div>
+
+                            {/* Error */}
+                            {error && (
+                              <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="text-red-500"
+                              >
+                                ! {error}
+                              </motion.div>
+                            )}
+
+                            {/* Submit */}
+                            <button
+                              type="submit"
+                              disabled={isLoading}
+                              className="mt-4 px-6 py-2 border border-green-500 bg-green-500/10 hover:bg-green-500/20 transition-all disabled:opacity-50"
+                            >
+                              {isLoading ? '[ AUTHENTICATING... ]' : '[ LOGIN ]'}
+                            </button>
+                          </form>
+
+                          <div className="mt-4 pt-3 border-t border-green-900 text-xs text-green-700">
+                            <p>→ USE YOUR REGISTERED CREDENTIALS</p>
+                            <p>→ ALL ACTIVITIES ARE BEING MONITORED</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Submit Button */}
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98]"
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  Entrar
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </>
-              )}
-            </Button>
-          </form>
-        </motion.div>
-
-        {/* Footer */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="text-center text-gray-600 text-sm mt-6"
-        >
-          © 2024 CyberSystem. Todos os direitos reservados.
-        </motion.p>
-      </motion.div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
-  )
+  );
 }
