@@ -3,6 +3,8 @@ const router = express.Router();
 const { body } = require('express-validator');
 const authController = require('../controllers/auth.controller');
 const adminController = require('../controllers/admin.controller');
+const auth = require('../middlewares/auth.middleware');
+const role = require('../middlewares/role.middleware');
 
 // Validation rules
 const registerValidation = [
@@ -29,11 +31,13 @@ const loginValidation = [
 router.post('/register', registerValidation, authController.register);
 router.post('/login', loginValidation, authController.login);
 
-// Admin routes (sem autenticação JWT, apenas validação de chave mestra)
-router.post('/admin/validate-key', adminController.validateMasterKey);
-router.get('/admin/master-key', adminController.getMasterKey);
-router.get('/admin/users', adminController.getUsers);
-router.post('/admin/create-user', registerValidation, adminController.createUser);
+// Bootstrap routes (master key)
+router.post('/bootstrap/validate-key', adminController.validateMasterKey);
+router.post('/bootstrap/create-admin', registerValidation, authController.bootstrapAdmin);
+
+// Admin routes
+router.get('/admin/users', auth, role('admin'), adminController.getUsers);
+router.post('/admin/create-user', auth, role('admin'), registerValidation, adminController.createUser);
 
 // Validação para atualização (email opcional, senha opcional)
 const updateUserValidation = [
@@ -48,9 +52,9 @@ const updateUserValidation = [
     .withMessage('Senha deve ter no mínimo 8 caracteres')
 ];
 
-router.put('/admin/users/:id', updateUserValidation, adminController.updateUser);
-router.delete('/admin/users/:id', adminController.deleteUser);
-router.patch('/admin/users/:id/toggle-status', adminController.toggleUserStatus);
-router.patch('/admin/users/:id/role', adminController.updateUserRole);
+router.put('/admin/users/:id', auth, role('admin'), updateUserValidation, adminController.updateUser);
+router.delete('/admin/users/:id', auth, role('admin'), adminController.deleteUser);
+router.patch('/admin/users/:id/toggle-status', auth, role('admin'), adminController.toggleUserStatus);
+router.patch('/admin/users/:id/role', auth, role('admin'), adminController.updateUserRole);
 
 module.exports = router;

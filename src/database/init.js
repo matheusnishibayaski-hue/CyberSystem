@@ -27,19 +27,7 @@ const initDatabase = async () => {
     console.log('   - login_attempts (tentativas de login)');
     console.log('   - monitored_sites (sites monitorados)');
     console.log('   - security_logs (logs de segurança)');
-    console.log('   - admin_config (configurações administrativas)');
-    
-    // Verificar se chave mestra foi gerada
-    try {
-      const keyResult = await pool.query('SELECT master_key FROM admin_config ORDER BY id DESC LIMIT 1');
-      if (keyResult.rows.length > 0) {
-        console.log('🔑 Chave mestra já configurada');
-        console.log('   Execute "npm run get-master-key" para visualizar a chave mestra');
-      }
-    } catch (error) {
-      // Ignorar erro se tabela ainda não existir
-    }
-    
+
     return true;
   } catch (error) {
     console.error('❌ Erro ao inicializar banco de dados:', error.message);

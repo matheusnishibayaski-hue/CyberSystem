@@ -7,8 +7,6 @@ import SkullAnimation from "@/components/hacker/SkullAnimation";
 import apiClient from "@/api/client";
 import toast from "react-hot-toast";
 
-const MASTER_KEY = "yUf0XORGZ%G7ml%Pl7&q";
-
 export default function AdminLogin({ onBack }) {
   const navigate = useNavigate();
   const [masterKey, setMasterKey] = useState("");
@@ -16,7 +14,10 @@ export default function AdminLogin({ onBack }) {
   const [isLoading, setIsLoading] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    Boolean(localStorage.getItem('auth_token'))
+  );
+  const [bootstrapValidated, setBootstrapValidated] = useState(false);
   const [users, setUsers] = useState([]);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
@@ -40,6 +41,10 @@ export default function AdminLogin({ onBack }) {
 
   const loadUsers = async () => {
     try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        return;
+      }
       const response = await apiClient.get('/api/auth/admin/users');
       setUsers(response.data.users || []);
     } catch (error) {
@@ -58,21 +63,30 @@ export default function AdminLogin({ onBack }) {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
 
-    setTimeout(() => {
-      if (masterKey === MASTER_KEY) {
-        localStorage.setItem("admin_auth", "true");
-        setIsAuthenticated(true);
-        toast.success("Chave mestra validada!");
-      } else {
-        setError("CHAVE MESTRA INVÁLIDA");
-        setIsLoading(false);
-      }
-    }, 1000);
+    if (!masterKey) {
+      setError("CHAVE MESTRA OBRIGATÓRIA");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      await apiClient.post(
+        '/api/auth/bootstrap/validate-key',
+        null,
+        { headers: { 'x-master-key': masterKey } }
+      );
+      setBootstrapValidated(true);
+      toast.success("Chave mestra validada!");
+    } catch (error) {
+      setError(error.response?.data?.message || error.response?.data?.error || "CHAVE MESTRA INVÁLIDA");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCreateUser = async (e) => {
@@ -87,19 +101,44 @@ export default function AdminLogin({ onBack }) {
     setIsCreatingUser(true);
 
     try {
-      const response = await apiClient.post('/api/auth/admin/create-user', {
-        email: newUserEmail,
-        password: newUserPassword
-      });
+      const hasToken = Boolean(localStorage.getItem('auth_token'));
 
-      toast.success("Usuário criado com sucesso!");
+      const response = hasToken
+        ? await apiClient.post('/api/auth/admin/create-user', {
+            email: newUserEmail,
+            password: newUserPassword
+          })
+        : await apiClient.post(
+            '/api/auth/bootstrap/create-admin',
+            {
+              email: newUserEmail,
+              password: newUserPassword
+            },
+            { headers: { 'x-master-key': masterKey } }
+          );
+
+      if (!hasToken) {
+        const { token, user } = response.data || {};
+        if (token) {
+          localStorage.setItem('auth_token', token);
+        }
+        if (user) {
+          localStorage.setItem('auth_user', JSON.stringify(user));
+        }
+        setIsAuthenticated(true);
+        setBootstrapValidated(false);
+        setMasterKey("");
+        toast.success("Administrador criado com sucesso!");
+      } else {
+        toast.success("Usuário criado com sucesso!");
+      }
       setNewUserEmail("");
       setNewUserPassword("");
       setShowCreateForm(false);
       loadUsers();
-      setIsCreatingUser(false);
     } catch (error) {
       setError(error.response?.data?.message || "Erro ao criar usuário");
+    } finally {
       setIsCreatingUser(false);
     }
   };
@@ -281,7 +320,7 @@ export default function AdminLogin({ onBack }) {
                 </div>
 
                 <AnimatePresence mode="wait">
-                  {!isAuthenticated ? (
+                  {!isAuthenticated && !bootstrapValidated ? (
                     <motion.div
                       key="master-key-form"
                       initial={{ opacity: 0 }}
@@ -357,6 +396,89 @@ export default function AdminLogin({ onBack }) {
                           </motion.button>
                         </div>
                       </form>
+                    </motion.div>
+                  ) : !isAuthenticated && bootstrapValidated ? (
+                    <motion.div
+                      key="bootstrap-create-admin"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="space-y-6"
+                    >
+                      <div className="text-center mb-6">
+                        <h2 className="text-2xl font-bold text-green-400 mb-2">CRIAR ADMINISTRADOR INICIAL</h2>
+                        <div className="h-1 bg-gradient-to-r from-transparent via-green-500 to-transparent" />
+                        <p className="text-xs text-green-700 mt-2">
+                          → A master key será desativada após criar o primeiro admin
+                        </p>
+                      </div>
+
+                      <div className="border-2 border-green-500/30 p-6 bg-black/50">
+                        <h3 className="text-green-400 mb-4 flex items-center gap-2">
+                          <UserPlus className="w-5 h-5" />
+                          CRIAR ADMIN
+                        </h3>
+                        <form onSubmit={handleCreateUser} className="space-y-4">
+                          <div>
+                            <label className="flex items-center gap-2 text-sm text-green-400 mb-2">
+                              <Mail className="w-4 h-4" />
+                              <span>E-MAIL:</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={newUserEmail}
+                              onChange={(e) => setNewUserEmail(e.target.value)}
+                              disabled={isCreatingUser}
+                              placeholder="admin@exemplo.com"
+                              className="w-full bg-black border border-green-500/30 px-4 py-2 outline-none text-green-400 placeholder:text-green-900 focus:border-green-500"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="flex items-center gap-2 text-sm text-green-400 mb-2">
+                              <Key className="w-4 h-4" />
+                              <span>SENHA:</span>
+                            </label>
+                            <input
+                              type="password"
+                              value={newUserPassword}
+                              onChange={(e) => setNewUserPassword(e.target.value)}
+                              disabled={isCreatingUser}
+                              placeholder="Digite a senha..."
+                              className="w-full bg-black border border-green-500/30 px-4 py-2 outline-none text-green-400 placeholder:text-green-900 focus:border-green-500"
+                              required
+                            />
+                            <div className="mt-1 text-xs text-green-700">
+                              → Mínimo 8 caracteres, incluindo maiúscula, minúscula, número e símbolo
+                            </div>
+                          </div>
+                          {error && (
+                            <div className="text-red-400 text-sm">! {error}</div>
+                          )}
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBootstrapValidated(false);
+                                setMasterKey("");
+                                setNewUserEmail("");
+                                setNewUserPassword("");
+                                setError("");
+                              }}
+                              className="flex-1 border border-green-600 text-green-500 hover:bg-green-500/10 py-2 px-4 text-sm font-bold transition-all"
+                            >
+                              CANCELAR
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isCreatingUser}
+                              className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-4 transition-all disabled:opacity-50"
+                            >
+                              {isCreatingUser ? "CRIANDO..." : "CRIAR ADMIN"}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
                     </motion.div>
                   ) : (
                     <motion.div

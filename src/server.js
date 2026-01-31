@@ -123,12 +123,10 @@ const startServer = async (isRetry = false) => {
     // Development defaults to avoid 500s when secrets are missing
     if (process.env.NODE_ENV === 'development') {
       if (!process.env.JWT_SECRET) {
-        process.env.JWT_SECRET = 'dev-jwt-secret-change-me';
-        console.warn('⚠️ JWT_SECRET não configurado. Usando fallback de desenvolvimento.');
+        console.warn('⚠️ JWT_SECRET não configurado. Defina no .env.');
       }
       if (!process.env.SESSION_SECRET) {
-        process.env.SESSION_SECRET = 'dev-session-secret-change-me';
-        console.warn('⚠️ SESSION_SECRET não configurado. Usando fallback de desenvolvimento.');
+        console.warn('⚠️ SESSION_SECRET não configurado. Defina no .env.');
       }
     }
 

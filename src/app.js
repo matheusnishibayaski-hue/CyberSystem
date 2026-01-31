@@ -7,11 +7,25 @@ import('./utils/logger.js')
     console.warn('⚠️ Logger não inicializado. Usando console.');
   });
 
+const requiredEnvs = [
+  'DB_HOST',
+  'DB_USER',
+  'DB_PASSWORD',
+  'DB_NAME',
+  'JWT_SECRET',
+  'MASTER_KEY'
+];
+
+requiredEnvs.forEach(env => {
+  if (!process.env[env]) {
+    throw new Error(`Variável de ambiente ${env} não configurada`);
+  }
+});
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const session = require('express-session');
 
 const authRoutes = require('./routes/auth.routes');
 const protectedRoutes = require('./routes/protected.routes');
@@ -46,7 +60,7 @@ app.use(cors({
   origin: corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-master-key']
 }));
 
 // General Rate Limiting - Applied to all routes
@@ -110,18 +124,6 @@ app.use('/api/protected/scans/reports', dashboardLimiter); // Relatórios també
 // Aplicar rate limiting geral em todas as outras rotas
 app.use(generalLimiter); // Apply to all routes
 
-// Session Configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'change-this-secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
-}));
-
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/protected', protectedRoutes); // Rotas protegidas
@@ -170,12 +172,23 @@ app.use((req, res) => {
 
 // Error Handler
 app.use((err, req, res, next) => {
-  logger.error({ err }, 'Erro inesperado');
-  res.status(err.status || 500).json({
+  const status = err.status || 500;
+
+  // Log estruturado (sem stack em produção)
+  const logPayload = {
+    level: 'error',
+    route: req.originalUrl,
+    message: err.message
+  };
+  if (process.env.NODE_ENV !== 'production' && err.stack) {
+    logPayload.stack = err.stack;
+  }
+  logger.error(logPayload);
+
+  res.status(status).json({
     error: process.env.NODE_ENV === 'production'
       ? 'Internal server error'
-      : err.message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+      : err.message
   });
 });
 

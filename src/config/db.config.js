@@ -3,11 +3,11 @@ const { Pool } = require('pg');
 
 // Configuração do pool de conexões PostgreSQL
 const pool = new Pool({
-  host: process.env.DB_HOST || 'painellinux.fabricadetempo.cloud',
+  host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'CyberSystem',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '83e93176b68d4e97dadc5fc34e3aa331',
+  password: process.env.DB_PASSWORD,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: 20, // máximo de clientes no pool
   idleTimeoutMillis: 30000,

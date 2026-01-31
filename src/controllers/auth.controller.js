@@ -124,6 +124,113 @@ exports.register = async (req, res) => {
   }
 };
 
+// Bootstrap: criar primeiro admin usando MASTER_KEY
+exports.bootstrapAdmin = async (req, res) => {
+  try {
+    const masterKey = req.headers['x-master-key'];
+
+    if (!masterKey) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        message: 'Chave mestra é obrigatória'
+      });
+    }
+
+    if (!process.env.MASTER_KEY) {
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'MASTER_KEY não configurada'
+      });
+    }
+
+    if (masterKey !== process.env.MASTER_KEY) {
+      return res.status(403).json({
+        error: 'Chave inválida'
+      });
+    }
+
+    const adminCount = await query(
+      'SELECT COUNT(*)::int AS count FROM users WHERE role = $1',
+      ['admin']
+    );
+
+    if (adminCount.rows[0]?.count > 0) {
+      return res.status(403).json({
+        error: 'Bootstrap já concluído'
+      });
+    }
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const { email, password } = req.body;
+
+    const passwordValidation = validatePasswordStrength(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        message: passwordValidation.message
+      });
+    }
+
+    const existingUserResult = await query(
+      'SELECT id, email FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUserResult.rows.length > 0) {
+      return res.status(409).json({
+        error: 'User already exists',
+        message: 'Email já está cadastrado'
+      });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'JWT_SECRET não configurado'
+      });
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+
+    const result = await query(
+      'INSERT INTO users (email, password, is_active, role) VALUES ($1, $2, $3, $4) RETURNING id, email, role, created_at',
+      [email, hash, true, 'admin']
+    );
+
+    const newUser = result.rows[0];
+
+    const token = jwt.sign(
+      { userId: newUser.id, email: newUser.email, role: newUser.role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+    );
+
+    res.status(201).json({
+      message: 'Administrador criado com sucesso',
+      token,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        role: newUser.role,
+        created_at: newUser.created_at
+      }
+    });
+  } catch (error) {
+    console.error('Bootstrap admin error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Erro ao criar administrador'
+    });
+  }
+};
+
 // Login user
 exports.login = async (req, res) => {
   try {

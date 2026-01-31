@@ -2,10 +2,10 @@ const { query } = require('../config/db.config');
 const bcrypt = require('bcryptjs');
 const { validationResult } = require('express-validator');
 
-// Validar chave mestra
+// Validar chave mestra via header (bootstrap inicial)
 exports.validateMasterKey = async (req, res) => {
   try {
-    const { masterKey } = req.body;
+    const masterKey = req.headers['x-master-key'];
 
     if (!masterKey) {
       return res.status(400).json({
@@ -14,61 +14,39 @@ exports.validateMasterKey = async (req, res) => {
       });
     }
 
-    const result = await query(
-      'SELECT master_key FROM admin_config ORDER BY id DESC LIMIT 1'
-    );
-
-    if (result.rows.length === 0) {
+    if (!process.env.MASTER_KEY) {
       return res.status(500).json({
         error: 'Server configuration error',
-        message: 'Chave mestra não configurada no sistema'
+        message: 'MASTER_KEY não configurada'
       });
     }
 
-    const storedKey = result.rows[0].master_key;
+    const adminCount = await query(
+      'SELECT COUNT(*)::int AS count FROM users WHERE role = $1',
+      ['admin']
+    );
 
-    if (masterKey === storedKey) {
-      res.json({
-        valid: true,
-        message: 'Chave mestra válida'
-      });
-    } else {
-      res.status(401).json({
-        valid: false,
-        message: 'Chave mestra inválida'
+    if (adminCount.rows[0]?.count > 0) {
+      return res.status(403).json({
+        error: 'Bootstrap já concluído'
       });
     }
+
+    if (masterKey !== process.env.MASTER_KEY) {
+      return res.status(403).json({
+        error: 'Chave inválida'
+      });
+    }
+
+    res.json({
+      valid: true,
+      message: 'Chave mestra válida'
+    });
   } catch (error) {
     console.error('Erro ao validar chave mestra:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Erro ao validar chave mestra'
-    });
-  }
-};
-
-// Obter chave mestra (apenas para exibição - em produção, considerar remover)
-exports.getMasterKey = async (req, res) => {
-  try {
-    const result = await query(
-      'SELECT master_key FROM admin_config ORDER BY id DESC LIMIT 1'
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Not found',
-        message: 'Chave mestra não encontrada'
-      });
-    }
-
-    res.json({
-      masterKey: result.rows[0].master_key
-    });
-  } catch (error) {
-    console.error('Erro ao obter chave mestra:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Erro ao obter chave mestra'
     });
   }
 };
