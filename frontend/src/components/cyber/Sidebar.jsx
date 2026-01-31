@@ -6,24 +6,62 @@ import {
   Shield, 
   LogOut,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  AlertTriangle,
+  TestTube2,
+  Users,
+  Settings,
+  Circle
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import apiClient from "@/api/client"
 import { useAuth } from "@/lib/AuthContext"
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const location = useLocation()
-  const { logout } = useAuth()
+  const { user, logout } = useAuth()
+
+  const role = user?.role
+  const canSeeAlerts = ["admin", "security"].includes(role)
+  const { data: alerts = [] } = useQuery({
+    queryKey: ["critical-alerts"],
+    queryFn: async () => {
+      const response = await apiClient.get("/api/protected/alerts")
+      return response.data.alerts || []
+    },
+    enabled: !!user && canSeeAlerts,
+    initialData: []
+  })
 
   const menuItems = [
-    { name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-    { name: "Sites", icon: Globe, path: "/sites" },
-    { name: "Logs", icon: FileText, path: "/logs" },
+    { name: "Visão Geral", icon: LayoutDashboard, path: "/dashboard" },
+    { 
+      name: "Scans de Segurança", 
+      icon: TestTube2, 
+      path: "/scans",
+      children: [
+        { name: "Semgrep (SAST)", path: "/scans?tool=semgrep" },
+        { name: "OWASP ZAP (DAST)", path: "/scans?tool=zap" }
+      ]
+    },
+    { name: "Alertas & Riscos", icon: AlertTriangle, path: "/alerts", showAlertsBadge: true, roles: ["admin", "security"] },
+    { name: "Sites Monitorados", icon: Globe, path: "/sites" },
+    { name: "Logs & Auditoria", icon: FileText, path: "/logs" },
+    { name: "Usuários & Acessos (RBAC)", icon: Users, path: "/users", roles: ["admin"] },
+    { name: "Configurações", icon: Settings, path: "/settings", roles: ["admin"] }
   ]
 
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (!item.roles) return true
+    return item.roles.includes(role)
+  })
+
   const currentPath = location.pathname
+  const searchParams = new URLSearchParams(location.search)
+  const toolParam = searchParams.get("tool")
 
   return (
     <motion.aside
@@ -68,37 +106,73 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="p-4 space-y-2">
-        {menuItems.map((item) => {
-          const isActive = currentPath === item.path
+        {visibleMenuItems.map((item) => {
+          const isActive = currentPath === item.path || currentPath.startsWith(`${item.path}/`)
+          const hasBadge = item.showAlertsBadge && alerts.length > 0
           return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`
-                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
-                ${isActive 
-                  ? 'bg-gradient-to-r from-blue-500/20 to-cyan-500/10 text-blue-400 border border-blue-500/30' 
-                  : 'text-gray-400 hover:text-white hover:bg-slate-800/50'
-                }
-              `}
-            >
-              <item.icon className={`w-5 h-5 ${isActive ? 'text-blue-400' : ''}`} />
-              <AnimatePresence>
-                {!collapsed && (
-                  <motion.span
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="font-medium"
-                  >
-                    {item.name}
-                  </motion.span>
+            <div key={item.path} className="space-y-2">
+              <Link
+                to={item.path}
+                className={`
+                  flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200
+                  ${isActive 
+                    ? 'bg-gradient-to-r from-blue-500/20 to-cyan-500/10 text-blue-400 border border-blue-500/30' 
+                    : 'text-gray-400 hover:text-white hover:bg-slate-800/50'
+                  }
+                `}
+              >
+                <item.icon className={`w-5 h-5 ${isActive ? 'text-blue-400' : ''}`} />
+                <AnimatePresence>
+                  {!collapsed && (
+                    <motion.span
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="font-medium"
+                    >
+                      {item.name}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+                {item.showAlertsBadge && (
+                  <div className="ml-auto">
+                    {alerts.length > 0 && (
+                      <div className="badge">{alerts.length}</div>
+                    )}
+                  </div>
                 )}
-              </AnimatePresence>
-              {isActive && !collapsed && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                {isActive && !collapsed && (
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse ${hasBadge ? 'ml-2' : 'ml-auto'}`}
+                  />
+                )}
+              </Link>
+
+              {!collapsed && item.children && (
+                <div className="ml-8 space-y-1">
+                  {item.children.map((child) => {
+                    const basePath = child.path.split("?")[0]
+                    const childTool = child.path.includes("tool=") ? child.path.split("tool=")[1] : null
+                    const isChildActive =
+                      currentPath === basePath && (!childTool || childTool === toolParam)
+                    return (
+                      <Link
+                        key={child.path}
+                        to={child.path}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                          isChildActive
+                            ? 'text-blue-300 bg-blue-500/10'
+                            : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                        }`}
+                      >
+                        <Circle className="w-2.5 h-2.5" />
+                        <span>{child.name}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
               )}
-            </Link>
+            </div>
           )
         })}
       </nav>

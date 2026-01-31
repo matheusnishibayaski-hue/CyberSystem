@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const execAsync = promisify(exec);
 const projectRoot = path.resolve(__dirname, '..', '..');
 const { query } = require('../config/db.config');
+const { getScanQueue } = require('../queues/scanQueue');
 
 // Função auxiliar para executar scripts PowerShell
 async function executePowerShellScript(scriptPath, args = []) {
@@ -255,6 +256,136 @@ async function touchFile(filePath) {
     console.error(`[SCAN] Erro ao atualizar arquivo ${filePath}:`, error.message);
   }
 }
+
+// Adicionar scan à fila
+exports.startScan = async (req, res) => {
+  try {
+    const { type, target, scanType } = req.body;
+    const userId = req.user?.userId || null;
+    
+    // Validar tipo de scan
+    if (!type || !['security', 'zap'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tipo de scan inválido',
+        message: 'Tipo deve ser "security" ou "zap"'
+      });
+    }
+    
+    // Tentar obter a fila (Redis pode não estar disponível)
+    const scanQueue = getScanQueue();
+    if (!scanQueue) {
+      return res.status(503).json({
+        success: false,
+        error: 'Redis não disponível',
+        message: 'Para usar filas de scan, o Redis precisa estar rodando. Execute: npm run worker ou inicie o Redis manualmente.'
+      });
+    }
+    
+    // Adicionar job à fila
+    const job = await scanQueue.add('scan', { 
+      type, 
+      target: target || null,
+      userId,
+      scanType: scanType || (type === 'zap' ? 'simple' : null)
+    });
+    
+    res.json({ 
+      message: 'Scan enfileirado.',
+      jobId: job.id,
+      type,
+      status: 'queued'
+    });
+  } catch (error) {
+    console.error('Erro ao enfileirar scan:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erro ao enfileirar scan',
+      message: error.message
+    });
+  }
+};
+
+// Status da fila de scans
+exports.getQueueStatus = async (req, res) => {
+  try {
+    const scanQueue = getScanQueue();
+
+    if (!scanQueue) {
+      return res.json({
+        available: false,
+        message: 'Redis não disponível',
+        counts: {},
+        queue: [],
+        history: [],
+        metrics: { byType: { security: 0, zap: 0 } }
+      });
+    }
+
+    const counts = await scanQueue.getJobCounts('waiting', 'active', 'delayed', 'completed', 'failed');
+
+    const [waitingJobs, activeJobs, delayedJobs, historyJobs] = await Promise.all([
+      scanQueue.getJobs(['waiting'], 0, 50, true),
+      scanQueue.getJobs(['active'], 0, 50, true),
+      scanQueue.getJobs(['delayed'], 0, 50, true),
+      scanQueue.getJobs(['completed', 'failed'], 0, 50, true)
+    ]);
+
+    const serializeJob = (job, state) => ({
+      id: job.id,
+      name: job.name,
+      type: job.data?.type || 'unknown',
+      scanType: job.data?.scanType || null,
+      target: job.data?.target || null,
+      state,
+      createdAt: job.timestamp ? new Date(job.timestamp).toISOString() : null,
+      startedAt: job.processedOn ? new Date(job.processedOn).toISOString() : null,
+      finishedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+      failedReason: job.failedReason || null
+    });
+
+    const queue = [
+      ...waitingJobs.map((job) => serializeJob(job, 'waiting')),
+      ...activeJobs.map((job) => serializeJob(job, 'active')),
+      ...delayedJobs.map((job) => serializeJob(job, 'delayed'))
+    ];
+
+    const history = historyJobs.map((job) =>
+      serializeJob(job, job.failedReason ? 'failed' : 'completed')
+    );
+
+    const metrics = history.reduce(
+      (acc, job) => {
+        if (job.type === 'security') {
+          acc.byType.security += 1;
+        }
+        if (job.type === 'zap') {
+          acc.byType.zap += 1;
+        }
+        return acc;
+      },
+      { byType: { security: 0, zap: 0 } }
+    );
+
+    res.json({
+      available: true,
+      counts,
+      queue,
+      history,
+      metrics
+    });
+  } catch (error) {
+    console.error('Erro ao obter status da fila:', error);
+    res.json({
+      available: false,
+      message: 'Erro ao acessar fila',
+      counts: {},
+      queue: [],
+      history: [],
+      metrics: { byType: { security: 0, zap: 0 } }
+    });
+  }
+};
 
 // Executar scan de segurança (Semgrep)
 exports.runSecurityScan = async (req, res) => {

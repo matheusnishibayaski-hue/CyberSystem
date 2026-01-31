@@ -100,7 +100,7 @@ exports.register = async (req, res) => {
 
     // Create user in database
     const result = await query(
-      'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, created_at',
+      'INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id, email, role, created_at',
       [email, hash]
     );
 
@@ -111,6 +111,7 @@ exports.register = async (req, res) => {
       user: {
         id: newUser.id,
         email: newUser.email,
+        role: newUser.role,
         created_at: newUser.created_at
       }
     });
@@ -151,7 +152,7 @@ exports.login = async (req, res) => {
     let userResult;
     try {
       userResult = await query(
-        'SELECT id, email, password, is_active FROM users WHERE email = $1',
+        'SELECT id, email, password, is_active, role FROM users WHERE email = $1',
         [email]
       );
     } catch (dbError) {
@@ -220,7 +221,7 @@ exports.login = async (req, res) => {
     let token;
     try {
       token = jwt.sign(
-        { userId: user.id, email: user.email },
+        { userId: user.id, email: user.email, role: user.role },
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
       );
@@ -237,7 +238,8 @@ exports.login = async (req, res) => {
       token,
       user: {
         id: user.id,
-        email: user.email
+        email: user.email,
+        role: user.role
       }
     });
   } catch (error) {

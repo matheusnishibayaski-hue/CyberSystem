@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv-flow').config();
 const { query } = require('../src/config/db.config');
 
 async function getMasterKey() {

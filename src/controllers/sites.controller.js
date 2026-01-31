@@ -6,10 +6,29 @@ exports.getSites = async (req, res) => {
     const userId = req.user.userId;
 
     const result = await query(
-      `SELECT id, url, name, status, last_scan, vulnerabilities, created_at, updated_at 
-       FROM monitored_sites 
-       WHERE user_id = $1 
-       ORDER BY created_at DESC`,
+      `SELECT 
+        ms.id, 
+        ms.url, 
+        ms.name, 
+        ms.status, 
+        ms.last_scan, 
+        ms.vulnerabilities, 
+        ms.created_at, 
+        ms.updated_at,
+        last_alert.message as last_alert_message,
+        last_alert.created_at as last_alert_at
+       FROM monitored_sites ms
+       LEFT JOIN LATERAL (
+         SELECT sl.message, sl.created_at
+         FROM security_logs sl
+         WHERE sl.site_id = ms.id
+           AND sl.user_id = $1
+           AND sl.severity IN ('critical', 'error', 'warning')
+         ORDER BY sl.created_at DESC
+         LIMIT 1
+       ) last_alert ON true
+       WHERE ms.user_id = $1 
+       ORDER BY ms.created_at DESC`,
       [userId]
     );
 

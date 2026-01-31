@@ -219,7 +219,7 @@ npm install
 
 #### Configurar variáveis de ambiente:
 
-Crie um arquivo `.env` na raiz do projeto:
+Crie um arquivo `.env` na raiz do projeto (apenas para desenvolvimento local):
 
 ```env
 # Server Configuration
@@ -247,6 +247,383 @@ RATE_LIMIT_MAX_REQUESTS=100
 
 # Session Configuration
 SESSION_SECRET=seu-session-secret-aqui
+```
+
+#### Gestão profissional de secrets (AWS / Vault / Azure)
+
+**Não armazene secrets no repositório.** Em ambientes reais, use um cofre de secrets.
+O backend carrega automaticamente secrets via SDK quando as variáveis abaixo estão configuradas.
+
+**AWS Secrets Manager**
+
+Credenciais:
+* IAM Role (recomendado) ou `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
+* `AWS_REGION`
+
+Variáveis:
+```env
+AWS_SECRETS_ID=cybersystem/prod
+AWS_REGION=us-east-1
+```
+
+Exemplo de payload (SecretString JSON):
+```json
+{
+  "DB_HOST": "prod-db.example.com",
+  "DB_PORT": "5432",
+  "DB_NAME": "CyberSystem",
+  "DB_USER": "postgres",
+  "DB_PASSWORD": "super-secret",
+  "JWT_SECRET": "jwt-secret-prod",
+  "SESSION_SECRET": "session-secret-prod",
+  "REDIS_URL": "redis://prod-redis:6379"
+}
+```
+
+**HashiCorp Vault (KV v2 ou v1)**
+
+Credenciais:
+* `VAULT_TOKEN` (ou configure auth via agent)
+
+Variáveis:
+```env
+VAULT_ADDR=https://vault.example.com
+VAULT_TOKEN=s.XXXXX
+VAULT_SECRET_PATH=secret/data/cybersystem
+```
+
+Exemplo de payload (KV v2):
+```json
+{
+  "data": {
+    "DB_HOST": "prod-db.example.com",
+    "DB_PORT": "5432",
+    "DB_NAME": "CyberSystem",
+    "DB_USER": "postgres",
+    "DB_PASSWORD": "super-secret",
+    "JWT_SECRET": "jwt-secret-prod",
+    "SESSION_SECRET": "session-secret-prod",
+    "REDIS_URL": "redis://prod-redis:6379"
+  }
+}
+```
+
+**Azure Key Vault**
+
+Credenciais:
+* `DefaultAzureCredential` (Managed Identity, Azure CLI, Service Principal)
+
+Variáveis:
+```env
+AZURE_KEYVAULT_URL=https://<vault-name>.vault.azure.net
+AZURE_KEYVAULT_SECRET_NAMES=DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_SECRET,SESSION_SECRET,REDIS_URL
+```
+
+Exemplo de secrets (um segredo por chave):
+* `DB_HOST=prod-db.example.com`
+* `DB_PORT=5432`
+* `DB_NAME=CyberSystem`
+* `DB_USER=postgres`
+* `DB_PASSWORD=super-secret`
+* `JWT_SECRET=jwt-secret-prod`
+* `SESSION_SECRET=session-secret-prod`
+* `REDIS_URL=redis://prod-redis:6379`
+
+**Override opcional**
+```env
+SECRETS_OVERRIDE=true
+```
+Quando `true`, o loader sobrescreve variáveis já presentes no ambiente.
+
+**Exemplos por ambiente**
+
+*Desenvolvimento (local)*:
+```env
+NODE_ENV=development
+AWS_SECRETS_ID=cybersystem/dev
+AWS_REGION=us-east-1
+VAULT_ADDR=https://vault.dev.example.com
+VAULT_SECRET_PATH=secret/data/cybersystem
+AZURE_KEYVAULT_URL=https://cybersystem-dev.vault.azure.net
+AZURE_KEYVAULT_SECRET_NAMES=DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_SECRET,SESSION_SECRET,REDIS_URL
+```
+
+*Staging*:
+```env
+NODE_ENV=staging
+AWS_SECRETS_ID=cybersystem/staging
+AWS_REGION=us-east-1
+VAULT_ADDR=https://vault.staging.example.com
+VAULT_SECRET_PATH=secret/data/cybersystem
+AZURE_KEYVAULT_URL=https://cybersystem-staging.vault.azure.net
+AZURE_KEYVAULT_SECRET_NAMES=DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_SECRET,SESSION_SECRET,REDIS_URL
+```
+
+*Produção*:
+```env
+NODE_ENV=production
+AWS_SECRETS_ID=cybersystem/prod
+AWS_REGION=us-east-1
+VAULT_ADDR=https://vault.prod.example.com
+VAULT_SECRET_PATH=secret/data/cybersystem
+AZURE_KEYVAULT_URL=https://cybersystem-prod.vault.azure.net
+AZURE_KEYVAULT_SECRET_NAMES=DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_SECRET,SESSION_SECRET,REDIS_URL
+```
+
+**Política mínima IAM (AWS Secrets Manager)**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:cybersystem/*"
+    }
+  ]
+}
+```
+
+**Política mínima HashiCorp Vault (KV v2)**
+```hcl
+path "secret/data/cybersystem/*" {
+  capabilities = ["read"]
+}
+```
+
+**Política mínima HashiCorp Vault (KV v1)**
+```hcl
+path "secret/cybersystem/*" {
+  capabilities = ["read"]
+}
+```
+
+**Azure Key Vault (credenciais e permissões mínimas)**
+
+Opções de credencial com `DefaultAzureCredential`:
+```env
+# Service Principal
+AZURE_TENANT_ID=<tenant-id>
+AZURE_CLIENT_ID=<client-id>
+AZURE_CLIENT_SECRET=<client-secret>
+```
+
+Permissão mínima com RBAC:
+* Role: `Key Vault Secrets User`
+* Scope: no Key Vault específico (ex.: `/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/<vault-name>`)
+
+Permissão mínima com Access Policy (modo clássico):
+```text
+Secret Permissions: Get, List
+```
+
+**HashiCorp Vault Agent (exemplo de configuração)**
+
+*Exemplo com AppRole:*
+```hcl
+vault {
+  address = "https://vault.prod.example.com"
+}
+
+auto_auth {
+  method "approle" {
+    mount_path = "auth/approle"
+    config = {
+      role_id_file_path   = "/etc/vault/role_id"
+      secret_id_file_path = "/etc/vault/secret_id"
+    }
+  }
+  sink "file" {
+    config = {
+      path = "/etc/vault/token"
+    }
+  }
+}
+```
+
+**Rotação de secrets (boas práticas)**
+* Gire `JWT_SECRET`, `SESSION_SECRET` e senhas de DB periodicamente
+* Use versões e expiração no provedor (AWS Secrets Manager/Key Vault)
+* Atualize os serviços com rollout gradual para evitar downtime
+* Considere usar tokens de curta duração e renovar via agent/SDK
+
+**Kubernetes (exemplos de integração)**
+
+*AWS (IRSA)*:
+* Configure ServiceAccount com `eks.amazonaws.com/role-arn`
+* Use policy mínima do Secrets Manager
+
+*Vault (Kubernetes auth)*:
+```hcl
+path "auth/kubernetes/login" {
+  capabilities = ["create", "read"]
+}
+path "secret/data/cybersystem/*" {
+  capabilities = ["read"]
+}
+```
+
+*Azure (Managed Identity)*:
+* Habilite identidade gerenciada no cluster
+* Atribua role `Key Vault Secrets User` no Key Vault
+
+**AWS Task Roles (ECS/Fargate)**
+* Use task role com policy mínima do Secrets Manager
+* Evite `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` em env vars
+
+**Kubernetes Manifests (exemplos)**
+
+*AWS IRSA (ServiceAccount):*
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cybersystem
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/CyberSystemSecretsRole
+```
+
+*Deployment (variáveis básicas e provider):*
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cybersystem
+spec:
+  template:
+    spec:
+      serviceAccountName: cybersystem
+      containers:
+        - name: api
+          image: your-registry/cybersystem:latest
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: AWS_SECRETS_ID
+              value: "cybersystem/prod"
+```
+
+*Vault Agent Injector (annotations):*
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cybersystem
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: "cybersystem"
+    vault.hashicorp.com/agent-inject-secret-config: "secret/data/cybersystem"
+spec:
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "cybersystem"
+        vault.hashicorp.com/agent-inject-secret-config: "secret/data/cybersystem"
+    spec:
+      containers:
+        - name: api
+          image: your-registry/cybersystem:latest
+          env:
+            - name: VAULT_ADDR
+              value: "https://vault.prod.example.com"
+            - name: VAULT_SECRET_PATH
+              value: "secret/data/cybersystem"
+```
+
+*Azure Workload Identity (ServiceAccount + labels):*
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cybersystem
+  labels:
+    azure.workload.identity/use: "true"
+```
+
+*Azure Deployment (Key Vault):*
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cybersystem
+spec:
+  template:
+    spec:
+      serviceAccountName: cybersystem
+      containers:
+        - name: api
+          image: your-registry/cybersystem:latest
+          env:
+            - name: AZURE_KEYVAULT_URL
+              value: "https://cybersystem-prod.vault.azure.net"
+            - name: AZURE_KEYVAULT_SECRET_NAMES
+              value: "DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_SECRET,SESSION_SECRET,REDIS_URL"
+```
+
+**Helm values (exemplo)**
+```yaml
+env:
+  NODE_ENV: production
+  AWS_REGION: us-east-1
+  AWS_SECRETS_ID: cybersystem/prod
+  VAULT_ADDR: https://vault.prod.example.com
+  VAULT_SECRET_PATH: secret/data/cybersystem
+  AZURE_KEYVAULT_URL: https://cybersystem-prod.vault.azure.net
+  AZURE_KEYVAULT_SECRET_NAMES: DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,JWT_SECRET,SESSION_SECRET,REDIS_URL
+serviceAccount:
+  create: true
+  name: cybersystem
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/CyberSystemSecretsRole
+```
+
+**Vault Kubernetes Auth (role)**
+```hcl
+path "auth/kubernetes/role/cybersystem" {
+  capabilities = ["read"]
+}
+```
+
+**Exemplo de role Kubernetes no Vault**
+```bash
+vault write auth/kubernetes/role/cybersystem \
+  bound_service_account_names=cybersystem \
+  bound_service_account_namespaces=default \
+  policies=cybersystem \
+  ttl=1h
+```
+
+**Política Vault por namespace (exemplo)**
+```hcl
+path "secret/data/cybersystem/production/*" {
+  capabilities = ["read"]
+}
+```
+
+**IAM por ambiente (exemplo de Resource)**
+```json
+{
+  "Effect": "Allow",
+  "Action": ["secretsmanager:GetSecretValue"],
+  "Resource": [
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:cybersystem/dev*",
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:cybersystem/staging*",
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:cybersystem/prod*"
+  ]
+}
+```
+
+**Azure RBAC (exemplo de atribuição)**
+```bash
+az role assignment create \
+  --assignee <principal-id> \
+  --role "Key Vault Secrets User" \
+  --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault>"
 ```
 
 **Gerar secrets seguros:**

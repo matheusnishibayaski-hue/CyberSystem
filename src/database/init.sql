@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
+    role VARCHAR(20) DEFAULT 'viewer',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -14,6 +15,15 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
                    WHERE table_name='users' AND column_name='is_active') THEN
         ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+    END IF;
+END $$;
+
+-- Adicionar coluna role se não existir
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='users' AND column_name='role') THEN
+        ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'viewer';
     END IF;
 END $$;
 
@@ -108,6 +118,40 @@ CREATE INDEX IF NOT EXISTS idx_security_logs_type ON security_logs(log_type);
 CREATE INDEX IF NOT EXISTS idx_security_logs_severity ON security_logs(severity);
 CREATE INDEX IF NOT EXISTS idx_security_logs_created_at ON security_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_security_logs_user_id ON security_logs(user_id);
+
+-- Tabela de alertas importados do ZAP
+CREATE TABLE IF NOT EXISTS security_alerts (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    risk VARCHAR(50),
+    url TEXT,
+    description TEXT,
+    solution TEXT,
+    status VARCHAR(20) DEFAULT 'open',
+    acknowledged BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para alertas importados
+CREATE INDEX IF NOT EXISTS idx_security_alerts_risk ON security_alerts(risk);
+
+-- Adicionar coluna acknowledged se não existir
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='security_alerts' AND column_name='acknowledged') THEN
+        ALTER TABLE security_alerts ADD COLUMN acknowledged BOOLEAN DEFAULT FALSE;
+    END IF;
+END $$;
+
+-- Adicionar coluna status se não existir
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='security_alerts' AND column_name='status') THEN
+        ALTER TABLE security_alerts ADD COLUMN status VARCHAR(20) DEFAULT 'open';
+    END IF;
+END $$;
 
 -- Tabela de configurações administrativas
 CREATE TABLE IF NOT EXISTS admin_config (

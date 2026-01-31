@@ -3,7 +3,7 @@
  * Execute: node scripts/seed-data.js
  */
 
-require('dotenv').config();
+require('dotenv-flow').config();
 const { query } = require('../src/config/db.config');
 
 async function seedData() {

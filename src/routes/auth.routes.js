@@ -51,5 +51,6 @@ const updateUserValidation = [
 router.put('/admin/users/:id', updateUserValidation, adminController.updateUser);
 router.delete('/admin/users/:id', adminController.deleteUser);
 router.patch('/admin/users/:id/toggle-status', adminController.toggleUserStatus);
+router.patch('/admin/users/:id/role', adminController.updateUserRole);
 
 module.exports = router;

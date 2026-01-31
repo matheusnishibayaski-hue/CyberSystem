@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv-flow').config();
 const fs = require('fs');
 const path = require('path');
 const { pool, testConnection } = require('../config/db.config');

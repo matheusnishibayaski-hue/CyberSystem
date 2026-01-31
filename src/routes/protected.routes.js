@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth.middleware');
+const { authorize } = require('../middleware/authorize');
 const sitesController = require('../controllers/sites.controller');
 const logsController = require('../controllers/logs.controller');
+const alertsController = require('../controllers/alerts.controller');
 const dashboardController = require('../controllers/dashboard.controller');
 const scansController = require('../controllers/scans.controller');
+const zapAlertsController = require('../controllers/zapAlerts.controller');
 
 // Rotas de perfil
 router.get('/profile', authMiddleware, (req, res) => {
@@ -33,10 +36,19 @@ router.get('/logs', authMiddleware, logsController.getLogs);
 router.post('/logs', authMiddleware, logsController.createLog);
 router.get('/logs/stats', authMiddleware, logsController.getLogStats);
 
+// Rotas de alertas (restrito por papel)
+router.get('/alerts', authMiddleware, authorize(['admin', 'security']), alertsController.list);
+router.patch('/alerts/:id', authMiddleware, authorize(['admin', 'security']), alertsController.updateStatus);
+
 // Rotas de scans de segurança
+router.post('/scans', authMiddleware, scansController.startScan);
+router.get('/scans/queue', authMiddleware, scansController.getQueueStatus);
 router.post('/scans/security', authMiddleware, scansController.runSecurityScan);
 router.post('/scans/zap', authMiddleware, scansController.runZapScan);
 router.get('/scans/reports', authMiddleware, scansController.getScanReports);
 router.get('/scans/reports/:reportType', authMiddleware, scansController.downloadReport);
+
+// Importar alertas do ZAP
+router.post('/zap-alerts-import', authMiddleware, zapAlertsController.importZapAlerts);
 
 module.exports = router;

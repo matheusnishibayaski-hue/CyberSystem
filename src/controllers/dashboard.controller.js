@@ -157,7 +157,7 @@ exports.getRecentActivity = async (req, res) => {
   }
 };
 
-// Dados do gráfico de alertas por severidade (últimos 6 meses)
+// Dados do gráfico de alertas por severidade (últimos 30 dias)
 exports.getAlertsChart = async (req, res) => {
   try {
     const userId = req.user?.userId;
@@ -169,38 +169,36 @@ exports.getAlertsChart = async (req, res) => {
       });
     }
     
-    // Calcular data de 6 meses atrás
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    sixMonthsAgo.setDate(1); // Primeiro dia do mês
-    sixMonthsAgo.setHours(0, 0, 0, 0);
+    // Calcular data de 30 dias atrás
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
 
-    // Buscar logs dos últimos 6 meses agrupados por mês e severidade
+    // Buscar logs dos últimos 30 dias agrupados por dia e severidade
     const result = await query(
       `SELECT 
-        DATE_TRUNC('month', created_at) as month,
+        DATE_TRUNC('day', created_at) as day,
         severity,
         COUNT(*) as count
        FROM security_logs
        WHERE user_id = $1
        AND created_at >= $2
        AND severity IN ('critical', 'error', 'warning', 'info', 'success')
-       GROUP BY DATE_TRUNC('month', created_at), severity
-       ORDER BY month ASC`,
-      [userId, sixMonthsAgo]
+       GROUP BY DATE_TRUNC('day', created_at), severity
+       ORDER BY day ASC`,
+      [userId, thirtyDaysAgo]
     );
 
-    // Processar dados para o formato do gráfico
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Set', 'Out', 'Nov', 'Dez'];
     const chartData = {};
     
-    // Inicializar todos os meses dos últimos 6 meses com zeros
-    const now = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthKey = monthNames[monthDate.getMonth()];
-      chartData[monthKey] = {
-        date: monthKey,
+    // Inicializar todos os dias dos últimos 30 dias com zeros
+    for (let i = 29; i >= 0; i--) {
+      const dayDate = new Date(now);
+      dayDate.setDate(now.getDate() - i);
+      const dayKey = dayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      chartData[dayKey] = {
+        date: dayKey,
         critical: 0,
         high: 0,
         medium: 0,
@@ -210,25 +208,24 @@ exports.getAlertsChart = async (req, res) => {
 
     // Preencher com dados reais
     result.rows.forEach(row => {
-      const monthDate = new Date(row.month);
-      const monthKey = monthNames[monthDate.getMonth()];
+      const dayDate = new Date(row.day);
+      const dayKey = dayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
       
-      if (chartData[monthKey]) {
+      if (chartData[dayKey]) {
         // Mapear severidades do banco para as do gráfico
         if (row.severity === 'critical' || row.severity === 'error') {
-          chartData[monthKey].critical += parseInt(row.count);
+          chartData[dayKey].critical += parseInt(row.count);
         } else if (row.severity === 'warning') {
-          chartData[monthKey].high += parseInt(row.count);
+          chartData[dayKey].high += parseInt(row.count);
         } else if (row.severity === 'info') {
-          chartData[monthKey].medium += parseInt(row.count);
+          chartData[dayKey].medium += parseInt(row.count);
         } else if (row.severity === 'success') {
-          chartData[monthKey].low += parseInt(row.count);
+          chartData[dayKey].low += parseInt(row.count);
         }
       }
     });
 
-    // Converter para array e pegar apenas os últimos 6 meses
-    const chartDataArray = Object.values(chartData).slice(-6);
+    const chartDataArray = Object.values(chartData);
 
     res.json({
       success: true,

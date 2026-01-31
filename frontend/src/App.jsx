@@ -5,8 +5,6 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import Login from '@/pages/Login'
 import Dashboard from '@/pages/Dashboard'
-import Sites from '@/pages/Sites'
-import Logs from '@/pages/Logs'
 import '@/index.css'
 
 const queryClient = new QueryClient({
@@ -44,10 +42,26 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/scans"
+        element={
+          <ProtectedRoute>
+            <Navigate to="/dashboard#scans" replace />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/alerts"
+        element={
+          <ProtectedRoute>
+            <Navigate to="/dashboard#alerts" replace />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/sites"
         element={
           <ProtectedRoute>
-            <Sites />
+            <Navigate to="/dashboard#sites" replace />
           </ProtectedRoute>
         }
       />
@@ -55,7 +69,23 @@ function AppRoutes() {
         path="/logs"
         element={
           <ProtectedRoute>
-            <Logs />
+            <Navigate to="/dashboard#logs" replace />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute>
+            <Navigate to="/dashboard#users" replace />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Navigate to="/dashboard#settings" replace />
           </ProtectedRoute>
         }
       />

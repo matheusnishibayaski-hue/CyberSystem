@@ -77,7 +77,7 @@ exports.getMasterKey = async (req, res) => {
 exports.getUsers = async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, is_active, created_at FROM users ORDER BY created_at DESC'
+      'SELECT id, email, role, is_active, created_at FROM users ORDER BY created_at DESC'
     );
 
     res.json({
@@ -103,7 +103,14 @@ exports.createUser = async (req, res) => {
       });
     }
 
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
+
+    if (role && !isValidRole(role)) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        message: 'Role inválida'
+      });
+    }
 
     // Validar força da senha
     const passwordValidation = validatePasswordStrength(password);
@@ -130,10 +137,25 @@ exports.createUser = async (req, res) => {
     // Hash da senha
     const hash = await bcrypt.hash(password, 12);
 
+    if (role === 'admin') {
+      const adminCheck = await query(
+        'SELECT COUNT(*)::int AS count FROM users WHERE role = $1',
+        ['admin']
+      );
+      if (adminCheck.rows[0].count > 0) {
+        return res.status(409).json({
+          error: 'Admin already exists',
+          message: 'Já existe um administrador cadastrado'
+        });
+      }
+    }
+
+    const roleValue = role || 'viewer';
+
     // Criar usuário
     const result = await query(
-      'INSERT INTO users (email, password, is_active) VALUES ($1, $2, $3) RETURNING id, email, is_active, created_at',
-      [email, hash, true]
+      'INSERT INTO users (email, password, is_active, role) VALUES ($1, $2, $3, $4) RETURNING id, email, role, is_active, created_at',
+      [email, hash, true, roleValue]
     );
 
     const newUser = result.rows[0];
@@ -143,6 +165,7 @@ exports.createUser = async (req, res) => {
       user: {
         id: newUser.id,
         email: newUser.email,
+        role: newUser.role,
         is_active: newUser.is_active,
         created_at: newUser.created_at
       }
@@ -152,6 +175,62 @@ exports.createUser = async (req, res) => {
     res.status(500).json({
       error: 'Internal server error',
       message: 'Erro ao criar usuário'
+    });
+  }
+};
+
+// Atualizar role do usuário (apenas admin)
+exports.updateUserRole = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!role || !isValidRole(role)) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        message: 'Role inválida'
+      });
+    }
+
+    const userResult = await query(
+      'SELECT id, role FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'Usuário não encontrado'
+      });
+    }
+
+    if (role === 'admin') {
+      const adminCheck = await query(
+        'SELECT COUNT(*)::int AS count FROM users WHERE role = $1 AND id != $2',
+        ['admin', id]
+      );
+      if (adminCheck.rows[0].count > 0) {
+        return res.status(409).json({
+          error: 'Admin already exists',
+          message: 'Já existe um administrador cadastrado'
+        });
+      }
+    }
+
+    const result = await query(
+      'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, email, role, is_active, created_at, updated_at',
+      [role, id]
+    );
+
+    res.json({
+      message: 'Permissão atualizada com sucesso',
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar role:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Erro ao atualizar permissão'
     });
   }
 };
@@ -359,4 +438,8 @@ function validatePasswordStrength(password) {
   }
 
   return { valid: true };
+}
+
+function isValidRole(role) {
+  return ['admin', 'security', 'viewer'].includes(role);
 }

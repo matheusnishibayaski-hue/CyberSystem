@@ -1,13 +1,54 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Terminal, Activity } from "lucide-react";
+import { Terminal, Activity, AlertTriangle, TestTube2, Globe, FileText, Users, Settings } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import apiClient from "@/api/client";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function HackerNavbar({ currentPage, onLogout }) {
+  const location = useLocation();
+  const { user } = useAuth();
+  const role = user?.role;
+  const canSeeAlerts = ["admin", "security"].includes(role);
+  const { data: alerts = [] } = useQuery({
+    queryKey: ["critical-alerts"],
+    queryFn: async () => {
+      const response = await apiClient.get("/api/protected/alerts");
+      return response.data.alerts || [];
+    },
+    enabled: !!user && canSeeAlerts,
+    initialData: []
+  });
+
   const menuItems = [
-    { name: "DASHBOARD", page: "Dashboard" },
-    { name: "SITES", page: "Sites" },
-    { name: "LOGS", page: "Logs" },
+    { name: "DASHBOARD", page: "Dashboard", path: "/dashboard#overview", hash: "#overview", icon: Terminal },
+    { 
+      name: "SCANS", 
+      page: "Scans", 
+      path: "/dashboard#scans", 
+      hash: "#scans",
+      icon: TestTube2,
+      children: [
+        { name: "SEMGREP (SAST)", path: "/dashboard?tool=semgrep#scans", hash: "#scans", tool: "semgrep" },
+        { name: "OWASP ZAP (DAST)", path: "/dashboard?tool=zap#scans", hash: "#scans", tool: "zap" }
+      ]
+    },
+    { name: "ALERTAS", page: "Alerts", path: "/dashboard#alerts", hash: "#alerts", icon: AlertTriangle, showAlertsBadge: true, roles: ["admin", "security"] },
+    { name: "SITES", page: "Sites", path: "/dashboard#sites", hash: "#sites", icon: Globe },
+    { name: "LOGS", page: "Logs", path: "/dashboard#logs", hash: "#logs", icon: FileText },
+    { name: "USUÁRIOS", page: "Users", path: "/dashboard#users", hash: "#users", icon: Users, roles: ["admin"] },
+    { name: "CONFIG", page: "Settings", path: "/dashboard#settings", hash: "#settings", icon: Settings, roles: ["admin"] }
   ];
+
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (!item.roles) return true;
+    return item.roles.includes(role);
+  });
+
+  const currentPath = location.pathname;
+  const currentHash = location.hash || "#overview";
+  const searchParams = new URLSearchParams(location.search);
+  const toolParam = searchParams.get("tool");
 
   return (
     <motion.nav
@@ -31,22 +72,60 @@ export default function HackerNavbar({ currentPage, onLogout }) {
 
           {/* Navigation */}
           <div className="flex items-center gap-1">
-            {menuItems.map((item) => {
-              const isActive = currentPage === item.page;
+            {visibleMenuItems.map((item) => {
+              const isDashboard = currentPath === "/dashboard";
+              const isActive =
+                (currentPage === item.page && isDashboard) ||
+                (isDashboard && item.hash && currentHash === item.hash);
               return (
-                <Link
-                  key={item.page}
-                  to={`/${item.page}`}
-                  className={`
-                    px-4 py-2 text-sm transition-all
-                    ${isActive 
-                      ? 'bg-green-500/20 text-green-400 border border-green-500' 
-                      : 'text-green-700 hover:text-green-500 hover:bg-green-500/10'
-                    }
-                  `}
-                >
-                  [ {item.name} ]
-                </Link>
+                <div key={item.page} className="relative group">
+                  <Link
+                    to={item.path}
+                    className={`
+                      px-4 py-2 text-sm transition-all inline-flex items-center gap-2
+                      ${isActive 
+                        ? 'bg-green-500/20 text-green-400 border border-green-500' 
+                        : 'text-green-700 hover:text-green-500 hover:bg-green-500/10'
+                      }
+                    `}
+                  >
+                    {item.icon && <item.icon className="w-4 h-4" />}
+                    <span className="flex items-center gap-2">
+                      [ {item.name} ]
+                      {item.showAlertsBadge && alerts.length > 0 && (
+                        <div className="badge">{alerts.length}</div>
+                      )}
+                    </span>
+                  </Link>
+
+                  {item.children && (
+                    <div className="absolute left-0 top-full mt-2 hidden group-hover:block">
+                      <div className="bg-black border border-green-500 min-w-[220px] shadow-xl">
+                        {item.children.map((child) => {
+                          const isChildActive =
+                            currentPath === "/dashboard" &&
+                            currentHash === child.hash &&
+                            (!child.tool || child.tool === toolParam);
+                          return (
+                            <Link
+                              key={child.path}
+                              to={child.path}
+                              className={`
+                                block px-4 py-2 text-xs tracking-wider transition-all
+                                ${isChildActive
+                                  ? 'text-green-300 bg-green-500/10'
+                                  : 'text-green-700 hover:text-green-400 hover:bg-green-500/10'
+                                }
+                              `}
+                            >
+                              [ {child.name} ]
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

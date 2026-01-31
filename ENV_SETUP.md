@@ -28,6 +28,14 @@ RATE_LIMIT_MAX_REQUESTS=100
 
 # Session Configuration
 SESSION_SECRET=change-this-session-secret-in-production
+
+# Redis Configuration (Obrigatório para o Worker de Scans)
+REDIS_URL=redis://localhost:6379
+# Ou use variáveis individuais:
+# REDIS_HOST=localhost
+# REDIS_PORT=6379
+# REDIS_PASSWORD=
+# REDIS_DB=0
 ```
 
 ## Importante
@@ -38,3 +46,31 @@ Você pode gerar um secret seguro usando:
 ```bash
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
+
+## Redis (Obrigatório para Worker)
+
+⚠️ **O Redis é obrigatório se você for usar o Worker de Scans (`npm run worker`).**
+
+Para instalar e iniciar o Redis:
+
+1. **Instalar Docker Desktop** (se ainda não tiver):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/install-docker.ps1
+   ```
+
+2. **Iniciar Redis**:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/start-redis.ps1
+   ```
+   
+   Ou manualmente:
+   ```powershell
+   docker run -d --name redis -p 6379:6379 redis:7
+   ```
+
+3. **Verificar se Redis está rodando**:
+   ```powershell
+   docker ps --filter "name=redis"
+   ```
+
+Para mais informações, consulte `docs/redis-setup.md`.
